@@ -88,7 +88,6 @@ function SearchView() {
     setHasSearched(true);
 
     try {
-      // Query Supabase using fuzzy matching (.ilike) across title and playwright
       const query = searchTerm.trim();
       let queryBuilder = supabase.from('plays').select('*');
 
@@ -109,7 +108,6 @@ function SearchView() {
     }
   };
 
-  // Perform an initial fetch of recent entries on load
   useEffect(() => {
     if (supabase) {
       handleSearch({ preventDefault: () => {} });
@@ -145,7 +143,7 @@ function SearchView() {
 
         {loading ? (
           <div className="text-center py-12 text-gray-500">در حال دریافت اطلاعات...</div>
-         маслом : plays.length === 0 ? (
+        ) : plays.length === 0 ? (
           <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200">
             هیچ نمایشنامه‌ای با این مشخصات یافت نشد.
           </div>
