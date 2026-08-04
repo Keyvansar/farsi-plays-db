@@ -1,0 +1,10 @@
+/* ===== STYLES & DIRECTIVES (src/index.css) ===== */
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    direction: rtl;
+  }
+}
