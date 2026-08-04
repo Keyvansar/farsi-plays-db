@@ -20,9 +20,21 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   }
 }
 
+// ===== UTILITY FUNCTIONS =====
+/**
+ * Normalizes Farsi text to handle keyboard variations 
+ * (converts Arabic ي/ك to Persian ی/ک and cleans extra spaces)
+ */
+const normalizeFarsi = (str) => {
+  if (!str) return '';
+  return str
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .trim();
+};
+
 // ===== CORE COMPONENT: App =====
 export default function App() {
-  // Navigation State: 'submit' or 'search'
   const [activeTab, setActiveTab] = useState('search');
 
   return (
@@ -88,10 +100,12 @@ function SearchView() {
     setHasSearched(true);
 
     try {
-      const query = searchTerm.trim();
+      const rawQuery = searchTerm.trim();
       let queryBuilder = supabase.from('plays').select('*');
 
-      if (query) {
+      if (rawQuery) {
+        // Normalize search term to bridge Farsi/Arabic keyboard discrepancies
+        const query = normalizeFarsi(rawQuery);
         queryBuilder = queryBuilder.or(
           `title_fa.ilike.%${query}%,playwright_fa.ilike.%${query}%,translator_fa.ilike.%${query}%`
         );
@@ -236,12 +250,18 @@ function SubmitView() {
     setMessage({ type: '', text: '' });
 
     try {
-      const { error } = await supabase.from('plays').insert([
-        {
-          ...formData,
-          publication_year: formData.publication_year ? parseInt(formData.publication_year, 10) : null
-        }
-      ]);
+      // Normalize Persian text inputs on submission for consistent matching
+      const cleanedData = {
+        ...formData,
+        title_fa: normalizeFarsi(formData.title_fa),
+        playwright_fa: normalizeFarsi(formData.playwright_fa),
+        translator_fa: formData.translator_fa ? normalizeFarsi(formData.translator_fa) : null,
+        publisher: formData.publisher ? normalizeFarsi(formData.publisher) : null,
+        genre: formData.genre ? normalizeFarsi(formData.genre) : null,
+        publication_year: formData.publication_year ? parseInt(formData.publication_year, 10) : null
+      };
+
+      const { error } = await supabase.from('plays').insert([cleanedData]);
 
       if (error) throw error;
 
