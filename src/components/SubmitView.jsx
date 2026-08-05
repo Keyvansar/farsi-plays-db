@@ -55,11 +55,18 @@ export default function SubmitView({ user }) {
         if (error) throw error;
         setDuplicateMatches(data || []);
         
-        if (selectedMergeTarget && !(data || []).find(d => d.id === selectedMergeTarget.id)) {
-          setSelectedMergeTarget(null);
-        }
+        // Clear selected merge target if it's no longer in the results
+        // Using functional update to avoid stale closure
+        setSelectedMergeTarget((prevTarget) => {
+          if (prevTarget && !(data || []).find(d => d.id === prevTarget.id)) {
+            return null;
+          }
+          return prevTarget;
+        });
       } catch (err) {
         console.error('Error checking for duplicates:', err);
+        // Don't show error to user for duplicate check failures - just log it
+        // This is a non-critical background operation
       } finally {
         setIsCheckingDuplicate(false);
       }
@@ -289,7 +296,20 @@ export default function SubmitView({ user }) {
       setSelectedMergeTarget(null);
     } catch (err) {
       console.error('Submission error:', err);
-      setMessage({ type: 'error', text: 'خطا: ' + (err.message || 'لطفاً دوباره تلاش کنید.') });
+      // Improved error messages for better user experience
+      let errorMessage = 'خطایی در ثبت اطلاعات رخ داد.';
+      
+      if (err.message?.includes('duplicate')) {
+        errorMessage = 'این اثر قبلاً ثبت شده است. لطفاً از بخش جستجو بررسی کنید.';
+      } else if (err.message?.includes('validation') || err.message?.includes('constraint')) {
+        errorMessage = 'اطلاعات وارد شده نامعتبر است. لطفاً فیلدها را بررسی کنید.';
+      } else if (err.message?.includes('network') || err.message?.includes('fetch')) {
+        errorMessage = 'ارتباط با سرور قطع شد. لطفاً اتصال اینترنت خود را بررسی کنید.';
+      } else if (err.code === 'PGRST301' || err.message?.includes('JWT')) {
+        errorMessage = 'لطفاً ابتدا وارد حساب کاربری خود شوید.';
+      }
+      
+      setMessage({ type: 'error', text: errorMessage });
     } finally {
       setLoading(false);
     }

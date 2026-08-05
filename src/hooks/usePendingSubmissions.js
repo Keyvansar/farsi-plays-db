@@ -37,8 +37,18 @@ export function usePendingSubmissions() {
       setSubmissions(sortedData);
     } catch (err) {
       console.error('Supabase API Error:', err);
-      const exactErrorMessage = err.message || err.details || err.hint;
-      setError(`خطای سرور: ${exactErrorMessage || 'عدم دسترسی به جدول (بررسی قوانین RLS)'}`);
+      // User-friendly error messages for fetch failures
+      let errorMsg = 'خطایی در دریافت اطلاعات رخ داد.';
+      
+      if (err.message?.includes('network') || err.message?.includes('fetch')) {
+        errorMsg = 'ارتباط با سرور قطع شد. لطفاً اتصال اینترنت خود را بررسی کنید.';
+      } else if (err.code === 'PGRST301' || err.message?.includes('JWT')) {
+        errorMsg = 'لطفاً ابتدا وارد حساب کاربری خود شوید.';
+      } else if (err.message?.includes('permission') || err.message?.includes('RLS')) {
+        errorMsg = 'دسترسی شما برای مشاهده این اطلاعات کافی نیست.';
+      }
+      
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -60,7 +70,20 @@ export function usePendingSubmissions() {
       return true;
     } catch (err) {
       console.error('Error approving submission:', err);
-      alert('خطا در تأیید اثر: ' + (err.message || 'مشکل در سمت پایگاه داده رخ داده است.'));
+      // User-friendly error messages for approve failures
+      let errorMsg = 'خطایی در تأیید اثر رخ داد.';
+      
+      if (err.message?.includes('network') || err.message?.includes('fetch')) {
+        errorMsg = 'ارتباط با سرور قطع شد. لطفاً اتصال اینترنت خود را بررسی کنید.';
+      } else if (err.code === 'PGRST301' || err.message?.includes('JWT')) {
+        errorMsg = 'لطفاً ابتدا وارد حساب کاربری خود شوید.';
+      } else if (err.message?.includes('permission') || err.message?.includes('RLS')) {
+        errorMsg = 'دسترسی شما برای تأیید آثار کافی نیست.';
+      } else if (err.message?.includes('duplicate')) {
+        errorMsg = 'این اثر قبلاً تأیید شده است.';
+      }
+      
+      alert(errorMsg);
       return false;
     } finally {
       setActionLoading(null);
@@ -89,7 +112,18 @@ export function usePendingSubmissions() {
       return true;
     } catch (err) {
       console.error('Error rejecting submission:', err);
-      alert('خطا در حذف اثر: ' + (err.message || 'دسترسی شما برای حذف مجاز نیست.'));
+      // User-friendly error messages for reject failures
+      let errorMsg = 'خطایی در حذف اثر رخ داد.';
+      
+      if (err.message?.includes('network') || err.message?.includes('fetch')) {
+        errorMsg = 'ارتباط با سرور قطع شد. لطفاً اتصال اینترنت خود را بررسی کنید.';
+      } else if (err.code === 'PGRST301' || err.message?.includes('JWT')) {
+        errorMsg = 'لطفاً ابتدا وارد حساب کاربری خود شوید.';
+      } else if (err.message?.includes('permission') || err.message?.includes('RLS')) {
+        errorMsg = 'دسترسی شما برای حذف آثار کافی نیست.';
+      }
+      
+      alert(errorMsg);
       return false;
     } finally {
       setActionLoading(null);
