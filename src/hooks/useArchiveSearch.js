@@ -45,7 +45,18 @@ export function useArchiveSearch() {
     } catch (err) {
       if (currentRequest === requestCount.current) {
         console.error('Error executing search RPC:', err);
-        setError(`خطایی در جستجو رخ داد: ${err.message || 'لطفاً دوباره تلاش کنید.'}`);
+        // User-friendly error messages for search failures
+        let errorMsg = 'خطایی در جستجو رخ داد.';
+        
+        if (err.message?.includes('network') || err.message?.includes('fetch')) {
+          errorMsg = 'ارتباط با سرور قطع شد. لطفاً اتصال اینترنت خود را بررسی کنید.';
+        } else if (err.code === 'PGRST301' || err.message?.includes('JWT')) {
+          errorMsg = 'لطفاً ابتدا وارد حساب کاربری خود شوید.';
+        } else if (err.message?.includes('timeout')) {
+          errorMsg = 'زمان جستجو به پایان رسید. لطفاً دوباره تلاش کنید.';
+        }
+        
+        setError(errorMsg);
       }
     } finally {
       if (currentRequest === requestCount.current) {
