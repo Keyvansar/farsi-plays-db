@@ -2,6 +2,66 @@
 -- FARSI PLAYS DATABASE: FINAL SCHEMA CONFIG
 -- ==========================================
 
+-- Enable required PostgreSQL extensions
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- 0. TABLE DEFINITIONS: Core Schema
+CREATE TABLE IF NOT EXISTS public.works (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    original_title text,
+    playwright_fa text[],
+    source_language text DEFAULT 'fa',
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.farsi_editions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    work_id uuid REFERENCES public.works(id) ON DELETE CASCADE,
+    title_fa text,
+    translator_fa text[],
+    publisher text,
+    publication_year_solar int,
+    publication_year_gregorian int,
+    isbn text,
+    page_count int,
+    cast_men int,
+    cast_women int,
+    cast_nonspecific int,
+    cast_total int,
+    synopsis text,
+    is_verified boolean DEFAULT false,
+    is_in_collection boolean DEFAULT false,
+    collection_title text,
+    publication_status text,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.pending_submissions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    payload jsonb NOT NULL,
+    created_at timestamptz DEFAULT now()
+);
+
+-- 0b. UTILITY FUNCTION: Farsi Text Normalization
+CREATE OR REPLACE FUNCTION public.normalize_farsi_text(input text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT CASE 
+        WHEN input IS NULL THEN NULL
+        ELSE regexp_replace(
+            regexp_replace(
+                regexp_replace(input, N'[يٴى]+', 'ی', 'g'),
+                N'[كٯک]+', 'ک', 'g'
+            ),
+            N'[ةهٕٖٔ]+', 'ه', 'g'
+        )
+    END;
+$$;
+
 -- 1. UTILITY: Immutable Array-to-String for Indexing
 CREATE OR REPLACE FUNCTION public.immutable_array_to_string(arr text[], sep text)
 RETURNS text
@@ -73,6 +133,19 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+-- 3b. TRIGGER ATTACHMENT: Attach triggers to tables
+CREATE TRIGGER trg_normalize_works_before_insert
+    BEFORE INSERT OR UPDATE ON public.works
+    FOR EACH ROW EXECUTE FUNCTION public.trg_normalize_works();
+
+CREATE TRIGGER trg_normalize_farsi_editions_before_insert
+    BEFORE INSERT OR UPDATE ON public.farsi_editions
+    FOR EACH ROW EXECUTE FUNCTION public.trg_normalize_farsi_editions();
+
+CREATE TRIGGER trg_validate_translator_requirement
+    BEFORE INSERT OR UPDATE ON public.farsi_editions
+    FOR EACH ROW EXECUTE FUNCTION public.validate_translator_requirement();
 
 -- 4. RLS POLICIES: Security Architecture
 ALTER TABLE public.pending_submissions ENABLE ROW LEVEL SECURITY;
@@ -156,6 +229,14 @@ BEGIN
         v_translator_fa := string_to_array(p->>'translator_fa', '،');
     ELSE
         v_translator_fa := ARRAY[]::text[];
+    END IF;
+
+    -- Handle flag action type - just delete the submission as flags are for review only
+    IF v_action_type = 'flag' THEN
+        -- For flag submissions, we just acknowledge and delete them
+        -- The moderator should manually review the flagged issues
+        DELETE FROM public.pending_submissions WHERE id = submission_id;
+        RETURN;
     END IF;
 
     -- Handle direct edits and edit suggestions for existing editions
