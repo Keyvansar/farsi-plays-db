@@ -9,7 +9,6 @@ import SubmitView from './components/SubmitView';
 import ModerationView from './components/ModerationView';
 
 // ===== MAIN CONTENT COMPONENT =====
-// We create an inner component so we can use useLocation and useNavigate inside BrowserRouter
 function AppContent() {
   const [user, setUser] = useState(null);
   const location = useLocation();
@@ -23,25 +22,20 @@ function AppContent() {
   // ===== LIFECYCLE & AUTHENTICATION =====
   useEffect(() => {
     if (!supabase) return;
-    
-    // Get initial session when the app loads
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
     });
-    
-    // Listen for login/logout changes
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
-      
-      // SECURITY FIX: If user logs out while on the moderation page, kick them back to home
       if (!session?.user && window.location.pathname === '/moderate') {
         navigate('/');
       }
     });
-    
-    // Cleanup subscription on unmount
+
     return () => subscription.unsubscribe();
-  }, [navigate]); // ✅ FIXED: Only runs once on mount (navigate is stable)
+  }, [navigate]);
 
   // ===== PROFILE SETUP HANDLER =====
   const handleProfileSetup = async (e) => {
@@ -49,13 +43,13 @@ function AppContent() {
     setProfileSetupError('');
     setIsUpdatingProfile(true);
     const normalizedName = normalizeFarsi(setupName);
-    
+
     if (normalizedName.length < 3) {
       setProfileSetupError('لطفاً نام و نام خانوادگی خود را به صورت کامل وارد کنید.');
       setIsUpdatingProfile(false);
       return;
     }
-    
+
     try {
       const { error } = await supabase.auth.updateUser({
         data: { display_name: normalizedName }
@@ -71,12 +65,12 @@ function AppContent() {
 
   const needsProfileSetup = user && !user.user_metadata?.display_name;
 
-  // Helper function to highlight the active tab based on the URL
+  // Helper to style active navigation links
   const isActive = (path) => location.pathname === path;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8 font-sans" dir="rtl">
-      
+
       {/* 🚀 MANDATORY PROFILE SETUP GATE */}
       {needsProfileSetup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4">
@@ -121,7 +115,7 @@ function AppContent() {
         </div>
       )}
 
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <header className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8 text-center relative overflow-hidden">
           {user && (
             <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
@@ -130,41 +124,41 @@ function AppContent() {
           <p className="text-sm text-gray-600 mb-6">
             سامانه جامع، متن‌باز و پژوهشی برای ثبت و جستجوی متون نمایشی
           </p>
-          
+
           {/* NAVIGATION LINKS */}
           <div className="flex justify-center gap-3 flex-wrap">
-            <Link 
-              to="/" 
+            <Link
+              to="/"
               className={`px-6 py-2.5 rounded-lg font-medium text-sm transition-all shadow-sm ${isActive('/') ? 'bg-indigo-600 text-white shadow-indigo-100' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
             >
               🔍 جستجو
             </Link>
-            
-            <Link 
-              to="/submit" 
+
+            <Link
+              to="/submit"
               className={`px-6 py-2.5 rounded-lg font-medium text-sm transition-all shadow-sm ${isActive('/submit') ? 'bg-indigo-600 text-white shadow-indigo-100' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
             >
               ✍️ ثبت اثر جدید
             </Link>
-            
+
             {user && (
-              <Link 
-                to="/moderate" 
+              <Link
+                to="/moderate"
                 className={`px-6 py-2.5 rounded-lg font-medium text-sm transition-all shadow-sm ${isActive('/moderate') ? 'bg-green-600 text-white shadow-green-100' : 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'}`}
               >
                 📋 کارتابل بررسی
               </Link>
             )}
-            
+
             {!user ? (
-              <Link 
+              <Link
                 to="/login"
                 className={`px-6 py-2.5 rounded-lg font-medium text-sm transition-all shadow-sm ${isActive('/login') ? 'bg-gray-800 text-white shadow-gray-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
               >
                 🔑 ورود همکاران
               </Link>
             ) : (
-              <button 
+              <button
                 onClick={() => supabase.auth.signOut()}
                 className="px-6 py-2.5 rounded-lg font-medium text-sm bg-red-50 text-red-700 hover:bg-red-100 transition-all shadow-sm flex items-center gap-2"
               >
@@ -185,12 +179,12 @@ function AppContent() {
 
         {/* ROUTING LOGIC */}
         <Routes>
-          <Route path="/" element={<SearchView />} />
+          <Route path="/" element={<SearchView user={user} />} />
           <Route path="/submit" element={<SubmitView user={user} />} />
           <Route path="/moderate" element={user ? <ModerationView /> : <Navigate to="/" replace />} />
           <Route path="/login" element={<LoginForm />} />
         </Routes>
-        
+
       </div>
     </div>
   );

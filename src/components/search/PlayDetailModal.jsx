@@ -1,4 +1,4 @@
-export default function PlayDetailModal({ edition, onClose }) {
+export default function PlayDetailModal({ edition, onClose, onEdit, onSuggest, onFlag }) {
   if (!edition) return null;
   const work = edition.works;
   const tags = edition.edition_tags?.map(et => et.taxonomy?.label_fa).filter(Boolean) || [];
@@ -96,11 +96,26 @@ export default function PlayDetailModal({ edition, onClose }) {
           )}
         </div>
 
-        {/* Action Buttons (Phase 3 Placeholders) */}
+        {/* Action Buttons */}
         <div className="sticky bottom-0 bg-gray-50 border-t border-gray-100 p-4 flex gap-3 rounded-b-2xl">
-          <button className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors text-sm">✏️ ویرایش</button>
-          <button className="flex-1 py-2.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg font-medium hover:bg-yellow-100 transition-colors text-sm">💡 پیشنهاد ویرایش</button>
-          <button className="flex-1 py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-lg font-medium hover:bg-red-100 transition-colors text-sm">🚩 گزارش خطا</button>
+          <button
+            onClick={() => { onClose(); onEdit?.(edition); }}
+            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors text-sm"
+          >
+            ✏️ ویرایش
+          </button>
+          <button
+            onClick={() => { onClose(); onSuggest?.(edition); }}
+            className="flex-1 py-2.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg font-medium hover:bg-yellow-100 transition-colors text-sm"
+          >
+            💡 پیشنهاد ویرایش
+          </button>
+          <button
+            onClick={() => { onClose(); onFlag?.(edition); }}
+            className="flex-1 py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-lg font-medium hover:bg-red-100 transition-colors text-sm"
+          >
+            🚩 گزارش خطا
+          </button>
         </div>
       </div>
     </div>

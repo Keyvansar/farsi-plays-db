@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import FilterSidebar from './FilterSidebar';
 import SearchResults from './SearchResults';
 import PlayDetailModal from './PlayDetailModal';
+import EditSuggestModal from './EditSuggestModal';
 import Pagination from './Pagination';
 
 const ITEMS_PER_PAGE = 20;
@@ -23,7 +24,7 @@ const defaultFilters = {
   hasLinks: false,
 };
 
-export default function SearchView() {
+export default function SearchView({ user }) {
   // Search state
   const [searchTerm, setSearchTerm] = useState('');
   const [searchScope, setSearchScope] = useState('all');
@@ -39,6 +40,8 @@ export default function SearchView() {
   
   // Modal state
   const [selectedEdition, setSelectedEdition] = useState(null);
+  const [editTarget, setEditTarget] = useState(null);
+  const [editMode, setEditMode] = useState('edit'); // 'edit' | 'suggest' | 'flag'
   
   // Filter options (loaded once)
   const [allPlaywrights, setAllPlaywrights] = useState([]);
@@ -60,28 +63,26 @@ export default function SearchView() {
       editions?.forEach(e => e.translator_fa?.forEach(t => trSet.add(t)));
       setAllTranslators([...trSet].sort());
 
-     // Tags: Only fetch tags actually used on verified editions
-const { data: verifiedEditions } = await supabase
-  .from('farsi_editions')
-  .select('edition_tags(taxonomy_id, taxonomy(id, label_fa))')
-  .eq('is_verified', true);
+      // Tags: Only fetch tags actually used on verified editions
+      const { data: verifiedEditions } = await supabase
+        .from('farsi_editions')
+        .select('edition_tags(taxonomy_id, taxonomy(id, label_fa))')
+        .eq('is_verified', true);
 
-// Flatten and deduplicate
-const tagMap = new Map();
-verifiedEditions?.forEach(edition => {
-  edition.edition_tags?.forEach(et => {
-    if (et.taxonomy && !tagMap.has(et.taxonomy.id)) {
-      tagMap.set(et.taxonomy.id, { id: et.taxonomy.id, label_fa: et.taxonomy.label_fa });
-    }
-  });
-});
-setAllTags([...tagMap.values()]);
+      const tagMap = new Map();
+      verifiedEditions?.forEach(edition => {
+        edition.edition_tags?.forEach(et => {
+          if (et.taxonomy && !tagMap.has(et.taxonomy.id)) {
+            tagMap.set(et.taxonomy.id, { id: et.taxonomy.id, label_fa: et.taxonomy.label_fa });
+          }
+        });
+      });
+      setAllTags([...tagMap.values()]);
     };
     loadOptions();
   }, []);
 
   // ===== BUILD & EXECUTE QUERY =====
-   // ===== BUILD & EXECUTE QUERY =====
   useEffect(() => {
     const fetchResults = async () => {
       setLoading(true);
@@ -293,7 +294,23 @@ setAllTags([...tagMap.values()]);
 
       {/* Detail Modal */}
       {selectedEdition && (
-        <PlayDetailModal edition={selectedEdition} onClose={() => setSelectedEdition(null)} />
+        <PlayDetailModal
+          edition={selectedEdition}
+          onClose={() => setSelectedEdition(null)}
+          onEdit={(ed) => { setEditTarget(ed); setEditMode('edit'); }}
+          onSuggest={(ed) => { setEditTarget(ed); setEditMode('suggest'); }}
+          onFlag={(ed) => { setEditTarget(ed); setEditMode('flag'); }}
+        />
+      )}
+
+      {/* Edit/Suggest Modal */}
+      {editTarget && (
+        <EditSuggestModal
+          edition={editTarget}
+          user={user}
+          onClose={() => setEditTarget(null)}
+          onSubmitted={() => setEditTarget(null)}
+        />
       )}
     </div>
   );

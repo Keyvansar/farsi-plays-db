@@ -82,6 +82,8 @@ export default function SubmitView({ user }) {
   const [showOptional, setShowOptional] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [castWarning, setCastWarning] = useState('');
+  const [isCompletingDuplicate, setIsCompletingDuplicate] = useState(false);  // ← ADD
+  const [lockedFields, setLockedFields] = useState({});                      // ← ADD
 
   // ===== DUPLICATE STATES =====
   const [duplicateMatches, setDuplicateMatches] = useState([]);
@@ -116,10 +118,29 @@ export default function SubmitView({ user }) {
       setIsCheckingDuplicate(true);
       try {
         const { data, error } = await supabase
-          .from('farsi_editions')
-          .select(`id, title_fa, publisher, publication_year_solar, page_count, synopsis, works!inner(id, playwright_fa, original_title)`)
-          .ilike('title_fa', `%${normalizedTitle}%`)
-          .limit(3);
+  .from('farsi_editions')
+  .select(`
+    id,
+    title_fa,
+    publisher,
+    publication_status,
+    publication_year_solar,
+    publication_year_gregorian,
+    original_year,
+    page_count,
+    isbn,
+    synopsis,
+    cast_men,
+    cast_women,
+    cast_nonspecific,
+    cast_total,
+    is_in_collection,
+    collection_title,
+    translator_fa,
+    works!inner(id, playwright_fa, original_title, source_language)
+  `)
+  .ilike('title_fa', `%${normalizedTitle}%`)
+  .limit(3);
 
         if (error) throw error;
         setDuplicateMatches(data || []);
@@ -155,6 +176,68 @@ export default function SubmitView({ user }) {
       setCastWarning('');
     }
   }, [watchedCastMen, watchedCastWomen, watchedCastNonspecific, watchedCastUnknown, setValue]);
+ 
+ // ===== DUPLICATE COMPLETION HANDLER =====
+  const handleToggleComplete = (checked) => {
+    setIsCompletingDuplicate(checked);
+
+    if (checked && selectedMergeTarget) {
+      const ed = selectedMergeTarget;
+      const work = ed.works || {};
+
+      // Build locked fields map (true = has data, should be locked)
+      const locks = {
+        title_fa: !!ed.title_fa,
+        playwright_fa: !!(work.playwright_fa && work.playwright_fa.length > 0),
+        translator_fa: !!(ed.translator_fa && ed.translator_fa.length > 0),
+        source_language: !!work.source_language,
+        original_title: !!work.original_title,
+        publisher: !!ed.publisher,
+        publication_year_solar: !!ed.publication_year_solar,
+        publication_year_gregorian: !!ed.publication_year_gregorian,
+        original_year: !!ed.original_year,
+        isbn: !!ed.isbn,
+        page_count: !!ed.page_count,
+        synopsis: !!ed.synopsis,
+        cast_men: !!ed.cast_men,
+        cast_women: !!ed.cast_women,
+        cast_nonspecific: !!ed.cast_nonspecific,
+        cast_total: !!ed.cast_total,
+        publication_status: !!ed.publication_status,
+        is_in_collection: !!ed.is_in_collection,
+        collection_title: !!ed.collection_title,
+      };
+      setLockedFields(locks);
+
+      // Pre-fill form with existing data
+      setValue('title_fa', ed.title_fa || '');
+      setValue('playwright_fa', work.playwright_fa?.join(', ') || '');
+      setValue('translator_fa', ed.translator_fa?.join(', ') || '');
+      setValue('source_language', work.source_language || 'fa');
+      setValue('original_title', work.original_title || '');
+      setValue('publisher', ed.publisher || '');
+      setValue('publication_year_solar', ed.publication_year_solar?.toString() || '');
+      setValue('publication_year_gregorian', ed.publication_year_gregorian?.toString() || '');
+      setValue('original_year', ed.original_year?.toString() || '');
+      setValue('isbn', ed.isbn || '');
+      setValue('page_count', ed.page_count?.toString() || '');
+      setValue('synopsis', ed.synopsis || '');
+      setValue('cast_men', ed.cast_men?.toString() || '');
+      setValue('cast_women', ed.cast_women?.toString() || '');
+      setValue('cast_nonspecific', ed.cast_nonspecific?.toString() || '');
+      setValue('cast_total', ed.cast_total?.toString() || '');
+      setValue('publication_status', ed.publication_status || 'published');
+      setValue('is_in_collection', ed.is_in_collection || false);
+      setValue('collection_title', ed.collection_title || '');
+
+      // Auto-open optional fields so user can see what's locked
+      setShowOptional(true);
+
+    } else {
+      // Uncheck: clear locks but keep form data
+      setLockedFields({});
+    }
+  };
 
   // ===== FORM SUBMISSION =====
   const onSubmit = async (data) => {
@@ -310,6 +393,8 @@ export default function SubmitView({ user }) {
       reset(emptyDefaults);
       setSelectedMergeTarget(null);
       setShowOptional(false);
+      setIsCompletingDuplicate(false);   // ← ADD
+      setLockedFields({});               // ← ADD
 
     } catch (err) {
       console.error('Submission error:', err);
@@ -334,14 +419,20 @@ export default function SubmitView({ user }) {
       )}
 
       <DuplicateWarning
-        duplicateMatches={duplicateMatches}
-        selectedMergeTarget={selectedMergeTarget}
-        onSelectTarget={setSelectedMergeTarget}
-      />
+  duplicateMatches={duplicateMatches}
+  selectedMergeTarget={selectedMergeTarget}
+  onSelectTarget={(match) => {
+    setSelectedMergeTarget(match);
+    setIsCompletingDuplicate(false);   // ← Reset when selecting a different duplicate
+    setLockedFields({});               // ← Clear locks
+  }}
+  isCompleting={isCompletingDuplicate}
+  onToggleComplete={handleToggleComplete}
+/>
 
       <FormProvider {...methods}>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <RequiredFields isCheckingDuplicate={isCheckingDuplicate} />
+          <RequiredFields isCheckingDuplicate={isCheckingDuplicate} lockedFields={lockedFields} />
 
           <button
             type="button"
@@ -351,7 +442,7 @@ export default function SubmitView({ user }) {
             {showOptional ? '▲ بستن فیلدهای اختیاری' : '▼ نمایش فیلدهای اختیاری (ناشر، سال، بازیگران و...)'}
           </button>
 
-          {showOptional && <OptionalFields castWarning={castWarning} />}
+          {showOptional && <OptionalFields castWarning={castWarning} lockedFields={lockedFields} />}
 
           <div>
             <label className="block text-sm font-semibold text-gray-800 mb-1.5">خلاصه اثر</label>
