@@ -137,7 +137,7 @@ BEGIN
     IF p IS NULL THEN RAISE EXCEPTION 'Submission % not found', submission_id; END IF;
 
     v_action_type := p->>'action_type';
-    v_target_edition_id := (p->>'target_edition_id')::uuid;
+    v_target_edition_id := (p->>'edition_id')::uuid;
     v_is_in_collection := coalesce((p->>'is_in_collection')::boolean, false);
     v_collection_title := p->>'collection_title';
 
@@ -158,7 +158,44 @@ BEGIN
         v_translator_fa := ARRAY[]::text[];
     END IF;
 
-    IF v_action_type = 'merge' AND v_target_edition_id IS NOT NULL THEN
+    -- Handle direct edits and edit suggestions for existing editions
+    IF v_action_type IN ('direct_edit', 'edit_suggestion') AND v_target_edition_id IS NOT NULL THEN
+        -- Get the work_id from the edition
+        SELECT work_id INTO v_target_work_id FROM public.farsi_editions WHERE id = v_target_edition_id;
+        
+        IF v_target_work_id IS NULL THEN
+            RAISE EXCEPTION 'Edition % not found', v_target_edition_id;
+        END IF;
+
+        -- Update works table if playwright or source_language changed
+        UPDATE public.works
+        SET 
+            original_title = COALESCE(p->>'original_title', original_title),
+            playwright_fa = COALESCE(v_playwright_fa, playwright_fa),
+            source_language = COALESCE(p->>'source_language', source_language)
+        WHERE id = v_target_work_id;
+
+        -- Update farsi_editions table with all fields
+        UPDATE public.farsi_editions
+        SET
+            title_fa = COALESCE(p->>'title_fa', title_fa),
+            translator_fa = COALESCE(v_translator_fa, translator_fa),
+            publisher = COALESCE(p->>'publisher', publisher),
+            publication_year_solar = COALESCE((p->>'publication_year_solar')::int, publication_year_solar),
+            publication_year_gregorian = COALESCE((p->>'publication_year_gregorian')::int, publication_year_gregorian),
+            isbn = COALESCE(p->>'isbn', isbn),
+            page_count = COALESCE((p->>'page_count')::int, page_count),
+            cast_men = COALESCE((p->>'cast_men')::int, cast_men),
+            cast_women = COALESCE((p->>'cast_women')::int, cast_women),
+            cast_nonspecific = COALESCE((p->>'cast_nonspecific')::int, cast_nonspecific),
+            cast_total = COALESCE((p->>'cast_total')::int, cast_total),
+            synopsis = COALESCE(p->>'synopsis', synopsis),
+            is_in_collection = COALESCE((p->>'is_in_collection')::boolean, is_in_collection),
+            collection_title = COALESCE(p->>'collection_title', collection_title),
+            publication_status = COALESCE(p->>'publication_status', publication_status)
+        WHERE id = v_target_edition_id;
+
+    ELSIF v_action_type = 'merge' AND v_target_edition_id IS NOT NULL THEN
         SELECT work_id INTO v_target_work_id FROM public.farsi_editions WHERE id = v_target_edition_id;
 
         UPDATE public.works
@@ -183,6 +220,7 @@ BEGIN
         WHERE id = v_target_edition_id;
 
     ELSE
+        -- Original behavior: insert new edition
         INSERT INTO public.works (original_title, playwright_fa, source_language)
         VALUES (p->>'original_title', v_playwright_fa, coalesce(p->>'source_language', 'fa')) RETURNING id INTO v_work_id;
 

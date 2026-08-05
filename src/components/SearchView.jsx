@@ -146,16 +146,67 @@ function SuggestEditModal({ isOpen, onClose, item, user, isDirectEdit }) {
     
     setSubmitting(true);
     
+    // Build comprehensive payload with all edition fields for direct edits
     let payloadData = {
       edition_id: item.id,
-      edit_type: editType,
-      field_name: field,
-      current_value: currentValue,
-      suggested_value: suggestedValue,
-      notes: notes || null,
+      action_type: editType === 'direct_edit' ? 'direct_edit' : (editType === 'flag' ? 'flag' : 'edit_suggestion'),
       submitter_name: user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'ناشناس',
       submitter_email: user?.email || null,
     };
+
+    // For direct edits and edit suggestions, include all the edition fields
+    if (editType === 'direct_edit' || editType === 'correction') {
+      payloadData = {
+        ...payloadData,
+        field_name: field,
+        current_value: currentValue,
+        suggested_value: suggestedValue,
+        notes: notes || null,
+        // Include all edition fields for the SQL function to use
+        title_fa: item.title_fa || null,
+        original_title: item.works?.original_title || null,
+        playwright_fa: item.works?.playwright_fa || [],
+        translator_fa: item.translator_fa || [],
+        source_language: item.works?.source_language || null,
+        publisher: item.publisher || null,
+        publication_year_solar: item.publication_year_solar || null,
+        publication_year_gregorian: item.publication_year_gregorian || null,
+        isbn: item.isbn || null,
+        page_count: item.page_count || null,
+        cast_men: item.cast_men || null,
+        cast_women: item.cast_women || null,
+        cast_nonspecific: item.cast_nonspecific || null,
+        cast_total: item.cast_total || null,
+        synopsis: item.synopsis || null,
+        is_in_collection: item.is_in_collection || false,
+        collection_title: item.collection_title || null,
+        publication_status: item.publication_status || null,
+      };
+      
+      // If a specific field is being edited, update it in the payload
+      if (field && editType !== 'addition') {
+        // Handle nested fields
+        if (field.includes('.')) {
+          const [parent, child] = field.split('.');
+          if (parent === 'works' && child === 'playwright_fa') {
+            payloadData.playwright_fa = suggestedValue.split('،').map(s => s.trim()).filter(Boolean);
+          } else if (parent === 'works' && child === 'translator_fa') {
+            payloadData.translator_fa = suggestedValue.split('،').map(s => s.trim()).filter(Boolean);
+          }
+        } else {
+          // Direct field update based on field type
+          if (FIELD_CONFIG[field]?.type === 'number') {
+            payloadData[field] = parseInt(suggestedValue, 10) || null;
+          } else if (FIELD_CONFIG[field]?.type === 'array') {
+            payloadData[field] = suggestedValue.split('،').map(s => s.trim()).filter(Boolean);
+          } else if (FIELD_CONFIG[field]?.type === 'boolean') {
+            payloadData[field] = suggestedValue.toLowerCase() === 'بله';
+          } else {
+            payloadData[field] = suggestedValue;
+          }
+        }
+      }
+    }
 
     if (editType === 'flag') {
       payloadData = {
@@ -198,7 +249,7 @@ function SuggestEditModal({ isOpen, onClose, item, user, isDirectEdit }) {
 
     try {
       const { error } = await supabase.from('pending_submissions').insert({ 
-        payload: { type: editType === 'direct_edit' ? 'direct_edit' : 'edit_suggestion', ...payloadData } 
+        payload: payloadData 
       });
       if (error) throw error;
       setMessage({ type: 'success', text: isDirectEdit ? '✅ درخواست ویرایش ثبت شد.' : '✅ پیشنهاد شما ثبت شد و پس از بررسی اعمال خواهد شد.' });
