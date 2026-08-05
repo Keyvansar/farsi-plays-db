@@ -25,6 +25,38 @@ const TRANSLATION_STATUS_OPTIONS = [
   { value: 'translated', label: 'ترجمه' },
 ];
 
+const FIELD_CONFIG = {
+  title_fa: { label: 'عنوان فارسی', type: 'text' },
+  playwright_fa: { label: 'نویسنده', type: 'array' },
+  translator_fa: { label: 'مترجم', type: 'array' },
+  publisher: { label: 'ناشر', type: 'text' },
+  publication_year_solar: { label: 'سال انتشار شمسی', type: 'number' },
+  page_count: { label: 'تعداد صفحات', type: 'number' },
+  isbn: { label: 'شابک (ISBN)', type: 'text' },
+  synopsis: { label: 'خلاصه داستان', type: 'textarea' },
+  cast_total: { label: 'تعداد کل بازیگران', type: 'number' },
+  cast_men: { label: 'بازیگران مرد', type: 'number' },
+  cast_women: { label: 'بازیگران زن', type: 'number' },
+  cast_nonspecific: { label: 'بازیگران غیراختصاصی', type: 'number' },
+  source_language: { label: 'زبان مبدأ', type: 'text' },
+  original_title: { label: 'عنوان اصلی', type: 'text' },
+  is_verified: { label: 'وضعیت تأیید', type: 'boolean' },
+};
+
+const FLAG_REASONS = [
+  { id: 'wrong_title', label: 'عنوان نادرست است' },
+  { id: 'wrong_author', label: 'نویسنده نادرست است' },
+  { id: 'wrong_translator', label: 'مترجم نادرست است' },
+  { id: 'wrong_publisher', label: 'ناشر نادرست است' },
+  { id: 'wrong_year', label: 'سال انتشار نادرست است' },
+  { id: 'wrong_pages', label: 'تعداد صفحات نادرست است' },
+  { id: 'wrong_isbn', label: 'شابک نادرست است' },
+  { id: 'wrong_synopsis', label: 'خلاصه نادرست است' },
+  { id: 'wrong_cast', label: 'اطلاعات بازیگران نادرست است' },
+  { id: 'duplicate', label: 'این رکورد تکراری است' },
+  { id: 'other', label: 'سایر' },
+];
+
 function FilterBadge({ label, onRemove }) {
   return (
     <span className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm font-medium">
@@ -38,25 +70,67 @@ function FilterBadge({ label, onRemove }) {
   );
 }
 
-function SuggestEditModal({ isOpen, onClose, item, user }) {
+function SuggestEditModal({ isOpen, onClose, item, user, isDirectEdit }) {
   const [editType, setEditType] = useState('correction');
   const [field, setField] = useState('');
   const [currentValue, setCurrentValue] = useState('');
   const [suggestedValue, setSuggestedValue] = useState('');
   const [notes, setNotes] = useState('');
+  const [selectedFlags, setSelectedFlags] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
   useEffect(() => {
     if (isOpen) {
-      setEditType('correction');
+      setEditType(isDirectEdit ? 'direct_edit' : 'correction');
       setField('');
       setCurrentValue('');
       setSuggestedValue('');
       setNotes('');
+      setSelectedFlags([]);
       setMessage({ type: '', text: '' });
     }
-  }, [isOpen]);
+  }, [isOpen, isDirectEdit]);
+
+  const getCurrentFieldValue = (fieldName) => {
+    if (!item || !fieldName) return '';
+    
+    // Handle nested fields from works table
+    if (fieldName.includes('.')) {
+      const [parent, child] = fieldName.split('.');
+      const parentObj = item[parent];
+      if (parentObj && child in parentObj) {
+        const val = parentObj[child];
+        return Array.isArray(val) ? joinNamesFromArray(val) : String(val ?? '');
+      }
+      return '';
+    }
+    
+    const val = item[fieldName];
+    if (val === null || val === undefined) return '';
+    if (Array.isArray(val)) return joinNamesFromArray(val);
+    if (typeof val === 'boolean') return val ? 'بله' : 'خیر';
+    return String(val);
+  };
+
+  const handleFieldChange = (newField) => {
+    setField(newField);
+    if (newField && editType !== 'addition') {
+      const val = getCurrentFieldValue(newField);
+      setCurrentValue(val);
+    } else {
+      setCurrentValue('');
+    }
+    setSuggestedValue('');
+  };
+
+  const toggleFlag = (flagId) => {
+    setSelectedFlags(prev => 
+      prev.includes(flagId) 
+        ? prev.filter(f => f !== flagId)
+        : [...prev, flagId]
+    );
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -64,8 +138,15 @@ function SuggestEditModal({ isOpen, onClose, item, user }) {
       setMessage({ type: 'error', text: 'ارتباط با پایگاه داده برقرار نیست.' });
       return;
     }
+    
+    if (editType === 'flag' && selectedFlags.length === 0) {
+      setMessage({ type: 'error', text: 'لطفاً حداقل یک مورد خطا را انتخاب کنید.' });
+      return;
+    }
+    
     setSubmitting(true);
-    const payload = {
+    
+    let payloadData = {
       edition_id: item.id,
       edit_type: editType,
       field_name: field,
@@ -75,19 +156,98 @@ function SuggestEditModal({ isOpen, onClose, item, user }) {
       submitter_name: user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'ناشناس',
       submitter_email: user?.email || null,
     };
+
+    if (editType === 'flag') {
+      payloadData = {
+        ...payloadData,
+        flag_reasons: selectedFlags,
+        flagged_fields: selectedFlags.map(id => {
+          const fieldMap = {
+            wrong_title: 'title_fa',
+            wrong_author: 'playwright_fa',
+            wrong_translator: 'translator_fa',
+            wrong_publisher: 'publisher',
+            wrong_year: 'publication_year_solar',
+            wrong_pages: 'page_count',
+            wrong_isbn: 'isbn',
+            wrong_synopsis: 'synopsis',
+            wrong_cast: 'cast_total',
+          };
+          return fieldMap[id] || 'other';
+        }),
+        flagged_values: selectedFlags.reduce((acc, id) => {
+          const fieldMap = {
+            wrong_title: 'title_fa',
+            wrong_author: 'playwright_fa',
+            wrong_translator: 'translator_fa',
+            wrong_publisher: 'publisher',
+            wrong_year: 'publication_year_solar',
+            wrong_pages: 'page_count',
+            wrong_isbn: 'isbn',
+            wrong_synopsis: 'synopsis',
+            wrong_cast: 'cast_total',
+          };
+          const fieldName = fieldMap[id];
+          if (fieldName) {
+            acc[fieldName] = getCurrentFieldValue(fieldName);
+          }
+          return acc;
+        }, {}),
+      };
+    }
+
     try {
       const { error } = await supabase.from('pending_submissions').insert({ 
-        payload: { type: 'edit_suggestion', ...payload } 
+        payload: { type: editType === 'direct_edit' ? 'direct_edit' : 'edit_suggestion', ...payloadData } 
       });
       if (error) throw error;
-      setMessage({ type: 'success', text: '✅ پیشنهاد شما ثبت شد و پس از بررسی اعمال خواهد شد.' });
+      setMessage({ type: 'success', text: isDirectEdit ? '✅ درخواست ویرایش ثبت شد.' : '✅ پیشنهاد شما ثبت شد و پس از بررسی اعمال خواهد شد.' });
       setTimeout(() => onClose(), 2000);
     } catch (err) {
-      console.error('Error submitting edit suggestion:', err);
-      setMessage({ type: 'error', text: 'خطایی در ثبت پیشنهاد رخ داد. لطفاً دوباره تلاش کنید.' });
+      console.error('Error submitting edit:', err);
+      setMessage({ type: 'error', text: 'خطایی در ثبت درخواست رخ داد. لطفاً دوباره تلاش کنید.' });
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const renderInputForField = (value, onChange, placeholder, fieldType, fieldName) => {
+    const config = FIELD_CONFIG[fieldName];
+    const type = fieldType || config?.type || 'text';
+    
+    if (type === 'textarea' || fieldName === 'synopsis') {
+      return (
+        <textarea 
+          value={value} 
+          onChange={e => onChange(e.target.value)} 
+          placeholder={placeholder} 
+          rows={4} 
+          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-base resize-none" 
+        />
+      );
+    }
+    
+    if (type === 'number') {
+      return (
+        <input 
+          type="number" 
+          value={value} 
+          onChange={e => onChange(e.target.value)} 
+          placeholder={placeholder} 
+          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-base" 
+        />
+      );
+    }
+    
+    return (
+      <input 
+        type="text" 
+        value={value} 
+        onChange={e => onChange(e.target.value)} 
+        placeholder={placeholder} 
+        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-base" 
+      />
+    );
   };
 
   if (!isOpen) return null;
@@ -97,7 +257,7 @@ function SuggestEditModal({ isOpen, onClose, item, user }) {
       <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="p-6 border-b border-gray-200">
           <div className="flex justify-between items-center">
-            <h3 className="text-xl font-bold text-gray-900">پیشنهاد ویرایش</h3>
+            <h3 className="text-xl font-bold text-gray-900">{isDirectEdit ? 'ویرایش اثر' : 'پیشنهاد ویرایش'}</h3>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -110,58 +270,125 @@ function SuggestEditModal({ isOpen, onClose, item, user }) {
           {message.text && (
             <div className={`p-4 rounded-lg text-sm ${message.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>{message.text}</div>
           )}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">نوع درخواست</label>
-            <div className="flex gap-3">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="editType" value="correction" checked={editType === 'correction'} onChange={e => setEditType(e.target.value)} className="text-indigo-600 focus:ring-indigo-500" />
-                <span className="text-sm text-gray-700">اصلاح اطلاعات</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="editType" value="addition" checked={editType === 'addition'} onChange={e => setEditType(e.target.value)} className="text-indigo-600 focus:ring-indigo-500" />
-                <span className="text-sm text-gray-700">افزودن اطلاعات جدید</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="editType" value="flag" checked={editType === 'flag'} onChange={e => setEditType(e.target.value)} className="text-indigo-600 focus:ring-indigo-500" />
-                <span className="text-sm text-gray-700">گزارش خطا</span>
-              </label>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">فیلد مورد نظر</label>
-            <select value={field} onChange={e => setField(e.target.value)} required className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-base">
-              <option value="">انتخاب فیلد...</option>
-              <option value="title_fa">عنوان فارسی</option>
-              <option value="playwright_fa">نویسنده</option>
-              <option value="translator_fa">مترجم</option>
-              <option value="publisher">ناشر</option>
-              <option value="publication_year_solar">سال انتشار شمسی</option>
-              <option value="page_count">تعداد صفحات</option>
-              <option value="isbn">شابک (ISBN)</option>
-              <option value="synopsis">خلاصه داستان</option>
-              <option value="cast_total">تعداد کل بازیگران</option>
-              <option value="cast_men">بازیگران مرد</option>
-              <option value="cast_women">بازیگران زن</option>
-              <option value="other">سایر</option>
-            </select>
-          </div>
-          {editType !== 'addition' && (
+          
+          {!isDirectEdit && (
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">مقدار فعلی</label>
-              <input type="text" value={currentValue} onChange={e => setCurrentValue(e.target.value)} placeholder="مقدار فعلی را وارد کنید..." className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-base" />
+              <label className="block text-sm font-semibold text-gray-700 mb-2">نوع درخواست</label>
+              <div className="flex gap-3 flex-wrap">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="editType" value="correction" checked={editType === 'correction'} onChange={e => setEditType(e.target.value)} className="text-indigo-600 focus:ring-indigo-500" />
+                  <span className="text-sm text-gray-700">اصلاح اطلاعات</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="editType" value="addition" checked={editType === 'addition'} onChange={e => setEditType(e.target.value)} className="text-indigo-600 focus:ring-indigo-500" />
+                  <span className="text-sm text-gray-700">افزودن اطلاعات جدید</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="editType" value="flag" checked={editType === 'flag'} onChange={e => setEditType(e.target.value)} className="text-indigo-600 focus:ring-indigo-500" />
+                  <span className="text-sm text-gray-700">گزارش خطا</span>
+                </label>
+              </div>
             </div>
           )}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">{editType === 'flag' ? 'توضیح خطا' : 'مقدار پیشنهادی'}</label>
-            <textarea value={suggestedValue} onChange={e => setSuggestedValue(e.target.value)} placeholder={editType === 'flag' ? 'توضیح دهید چه خطایی وجود دارد...' : 'مقدار صحیح را وارد کنید...'} rows={3} required className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-base resize-none" />
-          </div>
+
+          {editType === 'flag' ? (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">موارد خطا را انتخاب کنید:</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {FLAG_REASONS.map(reason => (
+                  <label key={reason.id} className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedFlags.includes(reason.id)} 
+                      onChange={() => toggleFlag(reason.id)} 
+                      className="mt-1 w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" 
+                    />
+                    <span className="text-sm text-gray-700">{reason.label}</span>
+                  </label>
+                ))}
+              </div>
+              {selectedFlags.length > 0 && (
+                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm font-semibold text-yellow-800 mb-2">مقادیر فعلی این فیلدها:</p>
+                  <div className="space-y-2 text-xs text-gray-700">
+                    {selectedFlags.map(id => {
+                      const fieldMap = {
+                        wrong_title: 'title_fa',
+                        wrong_author: 'playwright_fa',
+                        wrong_translator: 'translator_fa',
+                        wrong_publisher: 'publisher',
+                        wrong_year: 'publication_year_solar',
+                        wrong_pages: 'page_count',
+                        wrong_isbn: 'isbn',
+                        wrong_synopsis: 'synopsis',
+                        wrong_cast: 'cast_total',
+                      };
+                      const fieldName = fieldMap[id];
+                      if (!fieldName) return null;
+                      return (
+                        <div key={id} className="flex justify-between">
+                          <span className="font-medium">{FIELD_CONFIG[fieldName]?.label || fieldName}:</span>
+                          <span className="font-mono bg-white px-2 py-1 rounded">{getCurrentFieldValue(fieldName)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">فیلد مورد نظر</label>
+                <select value={field} onChange={e => handleFieldChange(e.target.value)} required className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-base">
+                  <option value="">انتخاب فیلد...</option>
+                  {Object.entries(FIELD_CONFIG).map(([key, config]) => (
+                    <option key={key} value={key}>{config.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {field && editType !== 'addition' && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">مقدار فعلی</label>
+                  {renderInputForField(currentValue, setCurrentValue, '', FIELD_CONFIG[field]?.type, field)}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">{editType === 'flag' ? 'توضیح خطا' : 'مقدار پیشنهادی'}</label>
+                {field ? (
+                  renderInputForField(suggestedValue, setSuggestedValue, editType === 'flag' ? 'توضیح دهید چه خطایی وجود دارد...' : 'مقدار صحیح را وارد کنید...', FIELD_CONFIG[field]?.type, field)
+                ) : (
+                  <textarea 
+                    value={suggestedValue} 
+                    onChange={e => setSuggestedValue(e.target.value)} 
+                    placeholder={editType === 'flag' ? 'توضیح دهید چه خطایی وجود دارد...' : 'مقدار صحیح را وارد کنید...'} 
+                    rows={3} 
+                    required 
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-base resize-none" 
+                  />
+                )}
+              </div>
+            </>
+          )}
+
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">یادداشت اضافی (اختیاری)</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="توضیحات تکمیلی، منبع اطلاعات، یا هر نکته دیگری..." rows={2} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-base resize-none" />
+            <textarea 
+              value={notes} 
+              onChange={e => setNotes(e.target.value)} 
+              placeholder="توضیحات تکمیلی، منبع اطلاعات، یا هر نکته دیگری..." 
+              rows={2} 
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-base resize-none" 
+            />
           </div>
+
           <div className="flex gap-3 pt-4">
             <button type="button" onClick={onClose} className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors">انصراف</button>
-            <button type="submit" disabled={submitting} className="flex-1 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow transition-colors disabled:opacity-50">{submitting ? 'در حال ثبت...' : 'ثبت پیشنهاد'}</button>
+            <button type="submit" disabled={submitting} className="flex-1 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow transition-colors disabled:opacity-50">
+              {submitting ? 'در حال ثبت...' : (isDirectEdit ? 'ثبت ویرایش' : 'ثبت پیشنهاد')}
+            </button>
           </div>
         </form>
       </div>
@@ -171,6 +398,43 @@ function SuggestEditModal({ isOpen, onClose, item, user }) {
 
 function EditionCard({ item, user }) {
   const [showEditModal, setShowEditModal] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const allFields = useMemo(() => {
+    const fields = [];
+    
+    // Basic info
+    if (item.title_fa) fields.push({ label: 'عنوان فارسی', value: item.title_fa, category: 'اطلاعات پایه' });
+    if (item.works?.original_title) fields.push({ label: 'عنوان اصلی', value: `${item.works.original_title} (${item.works.source_language?.toUpperCase() || 'UNKNOWN'})`, category: 'اطلاعات پایه' });
+    if (item.works?.playwright_fa && item.works.playwright_fa.length > 0) fields.push({ label: 'نویسنده', value: joinNamesFromArray(item.works.playwright_fa), category: 'اطلاعات پایه' });
+    if (item.translator_fa && item.translator_fa.length > 0) fields.push({ label: 'مترجم', value: joinNamesFromArray(item.translator_fa), category: 'اطلاعات پایه' });
+    if (item.publisher) fields.push({ label: 'ناشر', value: item.publisher, category: 'اطلاعات پایه' });
+    if (item.publication_year_solar) fields.push({ label: 'سال انتشار شمسی', value: item.publication_year_solar.toString(), category: 'اطلاعات پایه' });
+    if (item.isbn) fields.push({ label: 'شابک (ISBN)', value: item.isbn, category: 'اطلاعات پایه' });
+    if (item.page_count) fields.push({ label: 'تعداد صفحات', value: item.page_count.toString(), category: 'اطلاعات پایه' });
+    
+    // Cast info
+    if (item.cast_total !== null && item.cast_total !== -1) fields.push({ label: 'تعداد کل بازیگران', value: item.cast_total.toString(), category: 'بازیگران' });
+    if (item.cast_men !== null) fields.push({ label: 'بازیگران مرد', value: item.cast_men.toString(), category: 'بازیگران' });
+    if (item.cast_women !== null) fields.push({ label: 'بازیگران زن', value: item.cast_women.toString(), category: 'بازیگران' });
+    if (item.cast_nonspecific !== null) fields.push({ label: 'بازیگران غیراختصاصی', value: item.cast_nonspecific.toString(), category: 'بازیگران' });
+    
+    // Other
+    if (item.synopsis) fields.push({ label: 'خلاصه داستان', value: item.synopsis, category: 'سایر' });
+    if (item.source_language && item.source_language !== 'fa') fields.push({ label: 'زبان مبدأ', value: item.source_language.toUpperCase(), category: 'اطلاعات پایه' });
+    
+    // Group by category
+    const grouped = {};
+    fields.forEach(f => {
+      if (!grouped[f.category]) grouped[f.category] = [];
+      grouped[f.category].push(f);
+    });
+    
+    return grouped;
+  }, [item]);
+
+  const isDirectEdit = !!user;
+
   return (
     <>
       <div className="interactive-card p-5 rounded-lg border border-gray-200 hover:border-indigo-300 bg-white transition-all hover:shadow-md">
@@ -184,6 +448,8 @@ function EditionCard({ item, user }) {
             {item.publication_year_solar && (<span className="inline-block bg-indigo-50 text-indigo-700 text-xs px-2.5 py-1 rounded-full font-medium">{item.publication_year_solar}</span>)}
           </div>
         </div>
+        
+        {/* Compact view */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm text-gray-600 my-4">
           <div className="bg-gray-50 px-3 py-2 rounded-lg">
             <span className="font-semibold text-gray-700 block text-xs mb-1">نویسنده:</span>
@@ -202,6 +468,7 @@ function EditionCard({ item, user }) {
             </div>
           )}
         </div>
+        
         <div className="flex flex-wrap gap-2 text-xs text-gray-500 my-3 pt-3 border-t border-gray-100">
           {item.page_count && (<span className="bg-gray-100 px-2 py-1 rounded">📄 {item.page_count} صفحه</span>)}
           {item.isbn && (<span className="bg-gray-100 px-2 py-1 rounded font-mono">ISBN: {item.isbn}</span>)}
@@ -210,19 +477,52 @@ function EditionCard({ item, user }) {
           {item.cast_women !== null && (<span className="bg-gray-100 px-2 py-1 rounded">♀️ {item.cast_women}</span>)}
           {item.cast_nonspecific !== null && (<span className="bg-gray-100 px-2 py-1 rounded">⚧️ {item.cast_nonspecific}</span>)}
         </div>
+        
         {item.synopsis && (
           <div className="mt-4 p-4 bg-indigo-50 rounded-lg">
             <p className="text-sm text-gray-700 leading-relaxed"><span className="font-semibold text-indigo-700 block mb-2">خلاصه:</span>{item.synopsis}</p>
           </div>
         )}
+        
+        {/* Expandable detailed view */}
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <button 
+            onClick={() => setIsExpanded(!isExpanded)} 
+            className="text-sm text-indigo-600 hover:text-indigo-800 font-medium transition-colors inline-flex items-center gap-2"
+          >
+            <svg className={`w-4 h-4 transform transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+            {isExpanded ? 'نمایش کمتر' : 'نمایش همه اطلاعات'}
+          </button>
+          
+          {isExpanded && (
+            <div className="mt-4 space-y-4 animate-fadeIn">
+              {Object.entries(allFields).map(([category, fields]) => (
+                <div key={category}>
+                  <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-1">{category}</h4>
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {fields.map((field, idx) => (
+                      <div key={idx} className="bg-gray-50 px-3 py-2 rounded-lg">
+                        <dt className="text-xs font-semibold text-gray-500 mb-1">{field.label}</dt>
+                        <dd className="text-sm text-gray-900">{field.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        
         <div className="mt-4 pt-4 border-t border-gray-100 flex justify-end">
-          <button onClick={() => setShowEditModal(true)} className="inline-flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-800 font-medium transition-colors">
+          <button onClick={() => setShowEditModal(true)} className={`inline-flex items-center gap-2 text-sm font-medium transition-colors ${isDirectEdit ? 'text-green-600 hover:text-green-800' : 'text-indigo-600 hover:text-indigo-800'}`}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-            پیشنهاد ویرایش / افزودن اطلاعات
+            {isDirectEdit ? 'ویرایش' : 'پیشنهاد ویرایش / افزودن اطلاعات'}
           </button>
         </div>
       </div>
-      <SuggestEditModal isOpen={showEditModal} onClose={() => setShowEditModal(false)} item={item} user={user} />
+      <SuggestEditModal isOpen={showEditModal} onClose={() => setShowEditModal(false)} item={item} user={user} isDirectEdit={isDirectEdit} />
     </>
   );
 }
