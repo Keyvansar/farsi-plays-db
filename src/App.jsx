@@ -229,34 +229,54 @@ function SearchView() {
   );
 }
 
-// ===== SUB-COMPONENT: Submit View =====
+// ===== SUB-COMPONENT: Submit View (Redesigned) =====
 function SubmitView() {
   const [formData, setFormData] = useState({
-    // Work fields
-    original_title: '',
+    // Required fields (always visible)
+    title_fa: '',
     playwright_fa: '',
     source_language: 'fa',
-    // Edition fields
-    title_fa: '',
     translator_fa: '',
+    // Optional fields (hidden by default)
+    original_title: '',
     publisher: '',
-    publication_year: '',
+    publication_year_solar: '',
+    publication_year_gregorian: '',
+    isbn: '',
     page_count: '',
     cast_men: '',
     cast_women: '',
     cast_nonspecific: '',
     synopsis: '',
-    // Submitter metadata
     submitter_name: '',
-    submitter_email: ''
+    submitter_email: '',
+    external_references: [] // Array of { url, ref_type }
   });
 
+  const [showOptional, setShowOptional] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [newLink, setNewLink] = useState({ url: '', ref_type: 'ebook' });
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const addExternalLink = () => {
+    if (!newLink.url.trim()) return;
+    setFormData((prev) => ({
+      ...prev,
+      external_references: [...prev.external_references, { ...newLink }]
+    }));
+    setNewLink({ url: '', ref_type: 'ebook' });
+  };
+
+  const removeExternalLink = (index) => {
+    setFormData((prev) => ({
+      ...prev,
+      external_references: prev.external_references.filter((_, i) => i !== index)
+    }));
   };
 
   const handleSubmit = async (e) => {
@@ -270,313 +290,306 @@ function SubmitView() {
     setMessage({ type: '', text: '' });
 
     try {
-      // 1. Insert into 'works' table first to get the work_id
-      const { data: workData, error: workError } = await supabase
-        .from('works')
-        .insert([
-          {
-            original_title: normalizeFarsi(formData.original_title),
-            playwright_fa: normalizeFarsi(formData.playwright_fa),
-            source_language: formData.source_language
-          }
-        ])
-        .select()
-        .single();
+      // Write ONLY to pending_submissions — never to works/farsi_editions directly
+      const { error } = await supabase.from('pending_submissions').insert({
+        payload: {
+          // Work fields
+          original_title: normalizeFarsi(formData.original_title || formData.title_fa),
+          source_language: formData.source_language,
+          playwright_fa: normalizeFarsi(formData.playwright_fa),
+          // Edition fields
+          title_fa: normalizeFarsi(formData.title_fa),
+          translator_fa: formData.source_language !== 'fa' 
+            ? normalizeFarsi(formData.translator_fa) 
+            : null,
+          publisher: formData.publisher ? normalizeFarsi(formData.publisher) : null,
+          publication_year_solar: formData.publication_year_solar 
+            ? parseInt(formData.publication_year_solar, 10) 
+            : null,
+          publication_year_gregorian: formData.publication_year_gregorian 
+            ? parseInt(formData.publication_year_gregorian, 10) 
+            : null,
+          isbn: formData.isbn || null,
+          page_count: formData.page_count ? parseInt(formData.page_count, 10) : null,
+          cast_men: formData.cast_men !== '' ? parseInt(formData.cast_men, 10) : null,
+          cast_women: formData.cast_women !== '' ? parseInt(formData.cast_women, 10) : null,
+          cast_nonspecific: formData.cast_nonspecific !== '' ? parseInt(formData.cast_nonspecific, 10) : null,
+          synopsis: formData.synopsis ? normalizeFarsi(formData.synopsis) : null,
+          external_references: formData.external_references,
+        },
+        submitter_name: formData.submitter_name ? normalizeFarsi(formData.submitter_name) : null,
+        submitter_email: formData.submitter_email || null,
+      });
 
-      if (workError) throw workError;
-
-      // 2. Insert into 'farsi_editions' referencing the newly created work
-      const { error: editionError } = await supabase
-        .from('farsi_editions')
-        .insert([
-          {
-            work_id: workData.id,
-            title_fa: normalizeFarsi(formData.title_fa),
-            translator_fa: formData.translator_fa ? normalizeFarsi(formData.translator_fa) : null,
-            publisher: formData.publisher ? normalizeFarsi(formData.publisher) : null,
-            publication_year: formData.publication_year ? parseInt(formData.publication_year, 10) : null,
-            page_count: formData.page_count ? parseInt(formData.page_count, 10) : null,
-            cast_men: formData.cast_men !== '' ? parseInt(formData.cast_men, 10) : null,
-            cast_women: formData.cast_women !== '' ? parseInt(formData.cast_women, 10) : null,
-            cast_nonspecific: formData.cast_nonspecific !== '' ? parseInt(formData.cast_nonspecific, 10) : null,
-            synopsis: formData.synopsis ? normalizeFarsi(formData.synopsis) : null,
-            is_verified: false // Sent for moderation/verification queue
-          }
-        ]);
-
-      if (editionError) throw editionError;
+      if (error) throw error;
 
       setMessage({
         type: 'success',
-        text: 'اثر با موفقیت ثبت شد و پس از بازبینی در آرشیو عمومی قرار خواهد گرفت. سپاس!'
+        text: '✅ اثر با موفقیت دریافت شد و پس از بازبینی توسط تیم پژوهشی در آرشیو عمومی قرار خواهد گرفت. سپاس از مشارکت شما!'
       });
 
-      // Reset form
+      // Reset form completely
       setFormData({
-        original_title: '',
-        playwright_fa: '',
-        source_language: 'fa',
-        title_fa: '',
-        translator_fa: '',
-        publisher: '',
-        publication_year: '',
-        page_count: '',
-        cast_men: '',
-        cast_women: '',
-        cast_nonspecific: '',
-        synopsis: '',
-        submitter_name: '',
-        submitter_email: ''
+        title_fa: '', playwright_fa: '', source_language: 'fa', translator_fa: '',
+        original_title: '', publisher: '', publication_year_solar: '', publication_year_gregorian: '',
+        isbn: '', page_count: '', cast_men: '', cast_women: '', cast_nonspecific: '',
+        synopsis: '', submitter_name: '', submitter_email: '', external_references: []
       });
+      setShowOptional(false);
     } catch (err) {
-      console.error('Error inserting record:', err);
+      console.error('Submission error:', err);
       setMessage({
         type: 'error',
-        text: 'خطایی در ثبت اطلاعات رخ داد: ' + (err.message || 'لطفا دوباره تلاش کنید.')
+        text: 'خطایی در ثبت اطلاعات رخ داد: ' + (err.message || 'لطفاً دوباره تلاش کنید.')
       });
     } finally {
       setLoading(false);
     }
   };
 
+  const isTranslation = formData.source_language !== 'fa';
+
   return (
     <div className="bg-white p-6 sm:p-8 rounded-xl shadow-md border border-gray-100">
-      <div className="mb-6">
-        <h2 className="text-xl font-bold text-gray-900">فرم ثبت اثر و ویرایش فارسی جدید</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          اطلاعات اثر اصلی و مشخصات نشر فارسی آن را برای ورود به آرشیو تکمیل کنید.
+      <div className="mb-6 text-center">
+        <h2 className="text-2xl font-bold text-gray-900">ثبت اثر نمایشی جدید</h2>
+        <p className="mt-2 text-sm text-gray-500 max-w-lg mx-auto">
+          تنها ۴ فیلد ضروری را تکمیل کنید. اطلاعات تکمیلی به صورت اختیاری قابل افزودن است.
         </p>
       </div>
 
       {message.text && (
-        <div
-          className={`p-4 mb-6 rounded-lg text-sm ${
-            message.type === 'success'
-              ? 'bg-green-50 text-green-800 border border-green-200'
-              : 'bg-red-50 text-red-800 border border-red-200'
-          }`}
-        >
+        <div className={`p-4 mb-6 rounded-lg text-sm text-center ${
+          message.type === 'success'
+            ? 'bg-green-50 text-green-800 border border-green-200'
+            : 'bg-red-50 text-red-800 border border-red-200'
+        }`}>
           {message.text}
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Section: Work Details */}
-        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-          <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">مشخصات اثر اصلی (Work)</h3>
-          
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                نام نمایشنامه‌نویس (فارسی) <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="playwright_fa"
-                required
-                value={formData.playwright_fa}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
-                placeholder="مثال: آرتور میلر"
-              />
-            </div>
+        {/* ===== REQUIRED FIELDS SECTION (Always Visible) ===== */}
+        <div className="space-y-5">
+          <div>
+            <label className="block text-base font-semibold text-gray-800 mb-1.5">
+              نام نمایشنامه <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text" name="title_fa" required
+              value={formData.title_fa} onChange={handleChange}
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 transition-colors bg-gray-50 focus:bg-white text-lg"
+              placeholder="مثال: مرگ فروشنده"
+            />
+          </div>
 
+          <div>
+            <label className="block text-base font-semibold text-gray-800 mb-1.5">
+              نام نویسنده <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text" name="playwright_fa" required
+              value={formData.playwright_fa} onChange={handleChange}
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 transition-colors bg-gray-50 focus:bg-white text-lg"
+              placeholder="مثال: آرتور میلر"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">زبان اصلی اثر</label>
+              <label className="block text-base font-semibold text-gray-800 mb-1.5">
+                زبان اصلی اثر <span className="text-red-500">*</span>
+              </label>
               <select
                 name="source_language"
-                value={formData.source_language}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+                value={formData.source_language} onChange={handleChange}
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 transition-colors bg-gray-50 focus:bg-white text-lg appearance-none cursor-pointer"
               >
                 <option value="fa">فارسی (تألیف)</option>
                 <option value="en">انگلیسی</option>
                 <option value="fr">فرانسوی</option>
                 <option value="de">آلمانی</option>
+                <option value="ru">روسی</option>
+                <option value="ar">عربی</option>
                 <option value="other">سایر زبان‌ها</option>
               </select>
             </div>
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">عنوان اصلی اثر (به زبان مبدأ - اختیاری)</label>
-            <input
-              type="text"
-              name="original_title"
-              dir="ltr"
-              value={formData.original_title}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-left bg-white"
-              placeholder="Death of a Salesman"
-            />
-          </div>
-        </div>
-
-        {/* Section: Edition Details */}
-        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-          <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">مشخصات ویرایش/ترجمه فارسی (Edition)</h3>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                نام نمایشنامه در ترجمه/چاپ فارسی <span className="text-red-500">*</span>
+            {/* Conditional Translator - Only shows for non-Farsi works */}
+            <div className={`transition-all duration-300 overflow-hidden ${isTranslation ? 'opacity-100 max-h-24' : 'opacity-0 max-h-0'}`}>
+              <label className="block text-base font-semibold text-gray-800 mb-1.5">
+                نام مترجم <span className="text-red-500">*</span>
               </label>
               <input
-                type="text"
-                name="title_fa"
-                required
-                value={formData.title_fa}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
-                placeholder="مثال: مرگ فروشنده"
+                type="text" name="translator_fa"
+                required={isTranslation}
+                value={formData.translator_fa} onChange={handleChange}
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 transition-colors bg-gray-50 focus:bg-white text-lg"
+                placeholder="نام مترجم اثر"
               />
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                مترجم {formData.source_language !== 'fa' && <span className="text-red-500">* الزامی</span>}
-              </label>
-              <input
-                type="text"
-                name="translator_fa"
-                required={formData.source_language !== 'fa'}
-                value={formData.translator_fa}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
-                placeholder={formData.source_language !== 'fa' ? 'نام مترجم (الزامی برای اثر ترجمه)' : 'نام مترجم (در صورت وجود)'}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">ناشر</label>
-              <input
-                type="text"
-                name="publisher"
-                value={formData.publisher}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
-                placeholder="نام انتشارات"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">سال انتشار</label>
-              <input
-                type="number"
-                name="publication_year"
-                value={formData.publication_year}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
-                placeholder="مثال: 1402"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">تعداد صفحه</label>
-              <input
-                type="number"
-                name="page_count"
-                value={formData.page_count}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
-                placeholder="مثال: 120"
-              />
-            </div>
-          </div>
-
-          {/* Cast breakdown */}
-          <div className="grid grid-cols-3 gap-4 pt-2">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">تعداد بازیگر مرد</label>
-              <input
-                type="number"
-                name="cast_men"
-                min="0"
-                value={formData.cast_men}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white text-sm"
-                placeholder="مثال: 4"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">تعداد بازیگر زن</label>
-              <input
-                type="number"
-                name="cast_women"
-                min="0"
-                value={formData.cast_women}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white text-sm"
-                placeholder="مثال: 2"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">بازیگر خنثی/نامشخص</label>
-              <input
-                type="number"
-                name="cast_nonspecific"
-                min="0"
-                value={formData.cast_nonspecific}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white text-sm"
-                placeholder="مثال: 1"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">خلاصه داستان / معرفی کوتاه</label>
-            <textarea
-              name="synopsis"
-              rows="3"
-              value={formData.synopsis}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
-              placeholder="توضیحی مختصر درباره خط اصلی داستان..."
-            ></textarea>
           </div>
         </div>
 
-        {/* Submitter info */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 pt-2">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">نام ثبت‌کننده</label>
-            <input
-              type="text"
-              name="submitter_name"
-              value={formData.submitter_name}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              placeholder="نام شما"
-            />
-          </div>
+        {/* ===== OPTIONAL FIELDS TOGGLE ===== */}
+        <button
+          type="button"
+          onClick={() => setShowOptional(!showOptional)}
+          className="w-full py-3 px-4 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-indigo-400 hover:text-indigo-600 transition-all text-sm font-medium flex items-center justify-center gap-2"
+        >
+          {showOptional ? '▼ بستن فیلدهای اختیاری' : '▶ مشاهده فیلدهای اختیاری (ناشر، سال، بازیگران، لینک‌ها و...)'}
+        </button>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">ایمیل ثبت‌کننده (اختیاری)</label>
-            <input
-              type="email"
-              name="submitter_email"
-              dir="ltr"
-              value={formData.submitter_email}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-left"
-              placeholder="name@example.com"
-            />
-          </div>
-        </div>
+        {/* ===== OPTIONAL FIELDS (Collapsible) ===== */}
+        {showOptional && (
+          <div className="space-y-5 pt-2 animate-fadeIn">
+            <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 space-y-4">
+              <h3 className="text-sm font-bold text-indigo-700 uppercase tracking-wider mb-3">📚 مشخصات نشر و ترجمه</h3>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">عنوان اصلی (به زبان مبدأ)</label>
+                <input type="text" name="original_title" dir="ltr"
+                  value={formData.original_title} onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-left text-sm"
+                  placeholder="Death of a Salesman"
+                />
+              </div>
 
-        <div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow transition duration-150 disabled:opacity-50"
-          >
-            {loading ? 'در حال ثبت در پایگاه داده...' : 'ثبت اثر در بانک اطلاعاتی'}
-          </button>
-        </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">ناشر</label>
+                  <input type="text" name="publisher"
+                    value={formData.publisher} onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-sm"
+                    placeholder="نام انتشارات"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">سال انتشار (شمسی)</label>
+                  <input type="number" name="publication_year_solar"
+                    value={formData.publication_year_solar} onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-sm"
+                    placeholder="۱۴۰۲"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">تعداد صفحه</label>
+                  <input type="number" name="page_count" min="1"
+                    value={formData.page_count} onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-sm"
+                    placeholder="۱۲۰"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Cast Breakdown */}
+            <div className="bg-gray-50 p-5 rounded-xl border border-gray-200">
+              <h3 className="text-sm font-bold text-indigo-700 uppercase tracking-wider mb-3">🎭 ترکیب بازیگران</h3>
+              <div className="grid grid-cols-3 gap-4">
+                {[
+                  { name: 'cast_men', label: 'مرد' },
+                  { name: 'cast_women', label: 'زن' },
+                  { name: 'cast_nonspecific', label: 'خنثی/نامشخص' }
+                ].map((field) => (
+                  <div key={field.name}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1 text-center">{field.label}</label>
+                    <input type="number" name={field.name} min="0"
+                      value={formData[field.name]} onChange={handleChange}
+                      className="w-full px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-center text-sm"
+                      placeholder="۰"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* External References */}
+            <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 space-y-3">
+              <h3 className="text-sm font-bold text-indigo-700 uppercase tracking-wider">🔗 لینک‌های خارجی</h3>
+              
+              <div className="flex gap-2">
+                <select
+                  value={newLink.ref_type}
+                  onChange={(e) => setNewLink(prev => ({ ...prev, ref_type: e.target.value }))}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                >
+                  <option value="ebook">کتاب الکترونیک</option>
+                  <option value="publisher">سایت ناشر</option>
+                  <option value="bookstore">فروشگاه کتاب</option>
+                  <option value="library">کتابخانه</option>
+                  <option value="archive">آرشیو</option>
+                  <option value="production">اجرای نمایشی</option>
+                </select>
+                <input type="url" dir="ltr" placeholder="https://..."
+                  value={newLink.url}
+                  onChange={(e) => setNewLink(prev => ({ ...prev, url: e.target.value }))}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none text-left"
+                />
+                <button type="button" onClick={addExternalLink}
+                  className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-200 transition-colors whitespace-nowrap"
+                >
+                  + افزودن
+                </button>
+              </div>
+
+              {formData.external_references.length > 0 && (
+                <div className="space-y-2 mt-3">
+                  {formData.external_references.map((ref, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-white p-2 rounded-lg border border-gray-200 text-sm">
+                      <span className="truncate text-left flex-1 ml-2 text-gray-600" dir="ltr">{ref.url}</span>
+                      <span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-500 ml-2">{ref.ref_type}</span>
+                      <button type="button" onClick={() => removeExternalLink(idx)}
+                        className="text-red-400 hover:text-red-600 px-1"
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Synopsis */}
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">خلاصه داستان / معرفی کوتاه</label>
+              <textarea name="synopsis" rows="3"
+                value={formData.synopsis} onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-sm"
+                placeholder="توضیحی مختصر درباره خط اصلی داستان..."
+              ></textarea>
+            </div>
+
+            {/* Submitter Info */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-gray-200">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">نام شما (اختیاری)</label>
+                <input type="text" name="submitter_name"
+                  value={formData.submitter_name} onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-sm"
+                  placeholder="نام ثبت‌کننده"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">ایمیل (اختیاری)</label>
+                <input type="email" name="submitter_email" dir="ltr"
+                  value={formData.submitter_email} onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-sm text-left"
+                  placeholder="name@example.com"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Submit Button */}
+        <button type="submit" disabled={loading}
+          className="w-full py-4 px-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed text-lg mt-4"
+        >
+          {loading ? '⏳ در حال ارسال...' : 'ثبت اثر در بانک اطلاعاتی'}
+        </button>
+
+        <p className="text-xs text-center text-gray-400 mt-3">
+          اطلاعات ارسالی پس از بررسی صحت، در آرشیو عمومی منتشر خواهد شد.
+        </p>
       </form>
     </div>
   );
-}
