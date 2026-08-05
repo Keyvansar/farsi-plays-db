@@ -1,6 +1,7 @@
 // ===== IMPORTS & DEPENDENCIES =====
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useNavigate } from 'react-router-dom';
 
 // ===== COMPONENT =====
 export default function LoginForm({ onLoginSuccess }) {
@@ -8,6 +9,7 @@ export default function LoginForm({ onLoginSuccess }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -21,8 +23,8 @@ export default function LoginForm({ onLoginSuccess }) {
         ? 'ایمیل یا رمز عبور اشتباه است.'
         : loginError.message);
     } else {
-      onLoginSuccess();
-    }
+      navigate('/submit');
+        }
     setLoading(false);
   };
 
