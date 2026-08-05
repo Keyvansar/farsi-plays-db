@@ -1,8 +1,19 @@
-```
+```gitignore
+# Compiled and binary files
+*.pyc
+__pycache__/
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.out
+
 # Dependencies
 node_modules/
-
-# Environment
+venv/
+.venv/
 .env
 .env.local
 .env.*
@@ -12,59 +23,33 @@ dist/
 build/
 target/
 
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
 
 # Logs
 *.log
 
-# Temporary files
-*.tmp
-*.swp
-*.swo
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Coverage reports
+# Coverage
 coverage/
 htmlcov/
 .coverage
 
-# IDE files
-.vscode/
-.idea/
+# System files
+.DS_Store
+Thumbs.db
 
-# Package manager
-package-lock.json
-yarn.lock
-
-# Distribution / packaging
-*.tar.gz
-*.whl
-*.egg
-*.egg-info/
-
-# Testing
-.pytest_cache/
+# MyPy cache
 .mypy_cache/
-.nyc_output/
-coverage.xml
-*.gcda
-*.gcno
 
-# Compiled Binary files
-*.exe
-*.dll
-*.so
-*.a
-*.o
-*.obj
-*.out
+# Pytest cache
+.pytest_cache/
+
+# Gradle
+.gradle/
 
 # Compressed files
 *.zip
