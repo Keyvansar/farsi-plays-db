@@ -40,6 +40,18 @@ export default function DuplicateWarning({
             {match.synopsis && (
               <p className="text-xs text-gray-500 mt-2 line-clamp-2">{match.synopsis}</p>
             )}
+{match.edition_tags?.length > 0 && (
+  <div className="flex flex-wrap gap-1 mt-1">
+    {match.edition_tags.map(et => (
+      <span key={et.taxonomy_id} className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs">
+        {et.taxonomy?.label_fa}
+      </span>
+    ))}
+  </div>
+)}
+{match.external_references?.length > 0 && (
+  <span className="text-xs text-gray-500">🔗 {match.external_references.length} لینک</span>
+)}
           </div>
         ))}
       </div>

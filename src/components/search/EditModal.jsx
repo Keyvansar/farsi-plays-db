@@ -1,0 +1,559 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { useForm, FormProvider } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { supabase } from '../../lib/supabase';
+import RequiredFields from '../submit/RequiredFields';
+import OptionalFields from '../submit/OptionalFields';
+
+// ===== FORM SCHEMA =====
+const editSchema = z.object({
+  title_fa: z.string().min(3, 'عنوان باید حداقل ۳ حرف باشد'),
+  playwright_fa: z.string().min(3, 'نام نویسنده الزامی است'),
+  source_language: z.string().default('fa'),
+  translator_fa: z.string().optional().default(''),
+  publication_status: z.string().default('published'),
+  publisher: z.string().optional().default(''),
+  is_in_collection: z.boolean().default(false),
+  collection_title: z.string().optional().default(''),
+  original_title: z.string().optional().default(''),
+  publication_year_solar: z.string().optional().default(''),
+  publication_year_gregorian: z.string().optional().default(''),
+  original_year: z.string().optional().default(''),
+  isbn: z.string().optional().default(''),
+  page_count: z.string().optional().default(''),
+  cast_men: z.string().optional().default(''),
+  cast_women: z.string().optional().default(''),
+  cast_nonspecific: z.string().optional().default(''),
+  cast_total: z.string().optional().default(''),
+  cast_unknown: z.boolean().default(false),
+  synopsis: z.string().optional().default(''),
+  tags: z.array(z.string()).default([]),
+  external_references: z.array(z.object({
+    url: z.string().url('لینک نامعتبر است').or(z.literal('')),
+    ref_type: z.string().default('other'),
+  })).default([]),
+}).refine(
+  (data) => {
+    if (data.source_language !== 'fa') {
+      return data.translator_fa && data.translator_fa.trim().length >= 3;
+    }
+    return true;
+  },
+  { message: 'نام مترجم برای آثار ترجمه شده الزامی است', path: ['translator_fa'] }
+);
+
+// ===== FIELD LABELS =====
+const FIELD_LABELS = {
+  title_fa: 'عنوان',
+  playwright_fa: 'نویسنده',
+  source_language: 'زبان اصلی',
+  translator_fa: 'مترجم',
+  publication_status: 'وضعیت انتشار',
+  publisher: 'ناشر',
+  is_in_collection: 'بخشی از مجموعه',
+  collection_title: 'عنوان مجموعه',
+  original_title: 'عنوان اصلی',
+  publication_year_solar: 'سال شمسی',
+  publication_year_gregorian: 'سال میلادی',
+  original_year: 'سال نگارش',
+  isbn: 'شابک',
+  page_count: 'تعداد صفحات',
+  cast_men: 'بازیگر مرد',
+  cast_women: 'بازیگر زن',
+  cast_nonspecific: 'بازیگر نامشخص',
+  cast_total: 'مجموع بازیگران',
+  synopsis: 'خلاصه',
+  tags: 'برچسب‌ها',
+  external_references: 'لینک‌های خارجی',
+};
+
+// ===== MAIN COMPONENT =====
+export default function EditModal({ edition, user, onClose, onSubmitted }) {
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [changes, setChanges] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState({ type: '', text: '' });
+  const [showOptional, setShowOptional] = useState(true);
+
+  // Convert edition data to form format
+  const editionToForm = (ed) => {
+    const work = ed.works || {};
+    const editionTags = ed.edition_tags?.map(et => et.taxonomy?.label_fa).filter(Boolean) || [];
+    const editionRefs = ed.external_references?.filter(r => r.url).map(r => ({ url: r.url, ref_type: r.ref_type || 'other' })) || [];
+
+    return {
+      title_fa: ed.title_fa || '',
+      playwright_fa: work.playwright_fa?.join(', ') || '',
+      source_language: work.source_language || 'fa',
+      translator_fa: ed.translator_fa?.join(', ') || '',
+      publication_status: ed.publication_status || 'published',
+      publisher: ed.publisher || '',
+      is_in_collection: ed.is_in_collection || false,
+      collection_title: ed.collection_title || '',
+      original_title: work.original_title || '',
+      publication_year_solar: ed.publication_year_solar?.toString() || '',
+      publication_year_gregorian: ed.publication_year_gregorian?.toString() || '',
+      original_year: ed.original_year?.toString() || '',
+      isbn: ed.isbn || '',
+      page_count: ed.page_count?.toString() || '',
+      cast_men: ed.cast_men?.toString() || '',
+      cast_women: ed.cast_women?.toString() || '',
+      cast_nonspecific: ed.cast_nonspecific?.toString() || '',
+      cast_total: ed.cast_total?.toString() || '',
+      cast_unknown: !ed.cast_total && !ed.cast_men && !ed.cast_women,
+      synopsis: ed.synopsis || '',
+      tags: editionTags,
+      external_references: editionRefs,
+    };
+  };
+
+  const originalValues = useMemo(() => editionToForm(edition), [edition]);
+
+  const methods = useForm({
+    resolver: zodResolver(editSchema),
+    defaultValues: originalValues,
+  });
+
+  const { handleSubmit, reset, watch, setValue, getValues } = methods;
+  const watchedCastUnknown = watch('cast_unknown');
+
+  // Cast total auto-calculation
+  useEffect(() => {
+    if (watchedCastUnknown) return;
+    const men = parseInt(watch('cast_men')) || 0;
+    const women = parseInt(watch('cast_women')) || 0;
+    const nonspecific = parseInt(watch('cast_nonspecific')) || 0;
+    const total = men + women + nonspecific;
+    setValue('cast_total', total > 0 ? total.toString() : '', { shouldDirty: false });
+  }, [watch('cast_men'), watch('cast_women'), watch('cast_nonspecific'), watchedCastUnknown, setValue]);
+
+  // ===== CALCULATE CHANGES =====
+  const calculateChanges = (formData) => {
+    const diffs = [];
+
+    // Scalar fields
+    Object.keys(FIELD_LABELS).forEach(key => {
+      if (key === 'tags' || key === 'external_references') return;
+
+      const oldVal = String(originalValues[key] || '').trim();
+      const newVal = String(formData[key] || '').trim();
+      if (oldVal !== newVal) {
+        diffs.push({
+          field: key,
+          label: FIELD_LABELS[key],
+          oldValue: oldVal || '(خالی)',
+          newValue: newVal || '(خالی)',
+        });
+      }
+    });
+
+    // Tags changes
+    const oldTags = originalValues.tags || [];
+    const newTags = (formData.tags || []).filter(t => t);
+    const addedTags = newTags.filter(t => !oldTags.includes(t));
+    const removedTags = oldTags.filter(t => !newTags.includes(t));
+
+    if (addedTags.length > 0 || removedTags.length > 0) {
+      diffs.push({
+        field: 'tags',
+        label: FIELD_LABELS.tags,
+        oldValue: oldTags.join('، ') || '(خالی)',
+        newValue: newTags.join('، ') || '(خالی)',
+        addedTags,
+        removedTags,
+      });
+    }
+
+    // External references changes
+    const oldRefs = (originalValues.external_references || []).map(r => r.url);
+    const newRefs = (formData.external_references || []).filter(r => r.url).map(r => r.url);
+    const addedRefs = newRefs.filter(u => !oldRefs.includes(u));
+    const removedRefs = oldRefs.filter(u => !newRefs.includes(u));
+
+    if (addedRefs.length > 0 || removedRefs.length > 0) {
+      diffs.push({
+        field: 'external_references',
+        label: FIELD_LABELS.external_references,
+        oldValue: oldRefs.join('، ') || '(خالی)',
+        newValue: newRefs.join('، ') || '(خالی)',
+        addedRefs,
+        removedRefs,
+      });
+    }
+
+    return diffs;
+  };
+
+  // ===== UNDO =====
+  const handleUndoAll = () => {
+    reset(originalValues);
+    setMessage({ type: 'info', text: '✅ همه تغییرات برگردانده شد.' });
+  };
+
+  const handleUndoField = (fieldName) => {
+    setValue(fieldName, originalValues[fieldName], { shouldDirty: true });
+  };
+
+  // ===== PREVIEW CHANGES =====
+  const onPreviewChanges = (formData) => {
+    const diffs = calculateChanges(formData);
+    if (diffs.length === 0) {
+      setMessage({ type: 'info', text: 'هیچ تغییری ثبت نشده است.' });
+      return;
+    }
+    setChanges(diffs);
+    setShowConfirmation(true);
+    setMessage({ type: '', text: '' });
+  };
+
+  // ===== SUBMIT CHANGES (DIRECT APPLY) =====
+  const onConfirmSubmit = async () => {
+    setSubmitting(true);
+    setMessage({ type: '', text: '' });
+
+    try {
+      for (const change of changes) {
+
+        // ===== TAGS =====
+        if (change.field === 'tags') {
+          if (change.addedTags?.length > 0) {
+            for (const tagLabel of change.addedTags) {
+              let { data: taxData } = await supabase
+                .from('taxonomy')
+                .select('id')
+                .eq('label_fa', tagLabel)
+                .maybeSingle();
+
+              if (!taxData) {
+                const { data: newTax } = await supabase
+                  .from('taxonomy')
+                  .insert({ label_fa: tagLabel, category: 'user_tag', is_approved: false })
+                  .select('id')
+                  .single();
+                taxData = newTax;
+              }
+
+              if (taxData) {
+                await supabase.from('edition_tags').upsert({
+                  farsi_edition_id: edition.id,
+                  taxonomy_id: taxData.id,
+                });
+              }
+            }
+          }
+
+          if (change.removedTags?.length > 0) {
+            for (const tagLabel of change.removedTags) {
+              const { data: taxData } = await supabase
+                .from('taxonomy')
+                .select('id')
+                .eq('label_fa', tagLabel)
+                .maybeSingle();
+
+              if (taxData) {
+                await supabase
+                  .from('edition_tags')
+                  .delete()
+                  .eq('farsi_edition_id', edition.id)
+                  .eq('taxonomy_id', taxData.id);
+              }
+            }
+          }
+
+          await supabase.from('edit_history').insert({
+            edition_id: edition.id,
+            field_name: 'tags',
+            old_value: JSON.stringify(change.oldValue),
+            new_value: JSON.stringify(change.newValue),
+            changed_by: user?.id || null,
+          });
+
+        // ===== EXTERNAL REFERENCES =====
+        } else if (change.field === 'external_references') {
+          if (change.addedRefs?.length > 0) {
+            const formData = getValues();
+            const newRefsToAdd = (formData.external_references || [])
+              .filter(r => r.url && change.addedRefs.includes(r.url))
+              .map(r => ({
+                farsi_edition_id: edition.id,
+                url: r.url,
+                ref_type: r.ref_type || 'other',
+              }));
+
+            if (newRefsToAdd.length > 0) {
+              await supabase.from('external_references').insert(newRefsToAdd);
+            }
+          }
+
+          if (change.removedRefs?.length > 0) {
+            await supabase
+              .from('external_references')
+              .delete()
+              .eq('farsi_edition_id', edition.id)
+              .in('url', change.removedRefs);
+          }
+
+          await supabase.from('edit_history').insert({
+            edition_id: edition.id,
+            field_name: 'external_references',
+            old_value: JSON.stringify(change.oldValue),
+            new_value: JSON.stringify(change.newValue),
+            changed_by: user?.id || null,
+          });
+
+        // ===== REGULAR FIELDS =====
+        } else {
+          // Determine which table the field belongs to
+          const worksTableFields = ['playwright_fa', 'original_title', 'source_language'];
+          const isWorksField = worksTableFields.includes(change.field);
+
+          // Field type definitions
+          const arrayFields = ['translator_fa', 'playwright_fa'];
+          const intFields = ['page_count', 'cast_men', 'cast_women', 'cast_nonspecific', 'cast_total', 'publication_year_solar', 'publication_year_gregorian', 'original_year'];
+          const boolFields = ['is_in_collection', 'is_verified'];
+
+          if (isWorksField) {
+            // ===== UPDATE WORKS TABLE =====
+            const workId = edition.works?.id;
+            if (!workId) {
+              console.error('Cannot update works field: no work_id found');
+              continue;
+            }
+
+            const updatePayload = {};
+
+            if (arrayFields.includes(change.field)) {
+              // FIX 8.2: Split on both English comma and Farsi comma
+              updatePayload[change.field] = change.newValue === '(خالی)'
+                ? []
+                : change.newValue.split(/[,،]/).map(s => s.trim()).filter(Boolean);
+            } else {
+              updatePayload[change.field] = change.newValue === '(خالی)' ? null : change.newValue;
+            }
+
+            const { error: workUpdateError } = await supabase
+              .from('works')
+              .update(updatePayload)
+              .eq('id', workId);
+
+            if (workUpdateError) throw workUpdateError;
+
+          } else {
+            // ===== UPDATE FARSI_EDITIONS TABLE =====
+            const updatePayload = {};
+
+            if (intFields.includes(change.field)) {
+              updatePayload[change.field] = change.newValue === '(خالی)' ? null : parseInt(change.newValue);
+            } else if (boolFields.includes(change.field)) {
+              updatePayload[change.field] = change.newValue === 'true' || change.newValue === 'بله';
+            } else if (arrayFields.includes(change.field)) {
+              // FIX 8.2: Split on both English and Farsi comma
+              updatePayload[change.field] = change.newValue === '(خالی)'
+                ? []
+                : change.newValue.split(/[,،]/).map(s => s.trim()).filter(Boolean);
+            } else {
+              updatePayload[change.field] = change.newValue === '(خالی)' ? null : change.newValue;
+            }
+
+            const { error: updateError } = await supabase
+              .from('farsi_editions')
+              .update(updatePayload)
+              .eq('id', edition.id);
+
+            if (updateError) throw updateError;
+          }
+
+          // Log to edit_history
+          await supabase.from('edit_history').insert({
+            edition_id: edition.id,
+            field_name: change.field,
+            old_value: JSON.stringify(change.oldValue),
+            new_value: JSON.stringify(change.newValue),
+            changed_by: user?.id || null,
+          });
+        }
+      }
+
+      setMessage({ type: 'success', text: `✅ ${changes.length} تغییر مستقیماً اعمال شد.` });
+      setTimeout(() => {
+        onSubmitted?.();
+        onClose();
+      }, 1500);
+
+    } catch (err) {
+      console.error('Direct edit error:', err);
+      setMessage({ type: 'error', text: `خطا در اعمال تغییرات: ${err.message}` });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const currentFormData = watch();
+  const hasChanges = calculateChanges(currentFormData).length > 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir="rtl">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
+
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-gray-100 p-5 flex justify-between items-center rounded-t-2xl z-10">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">✏️ ویرایش اثر</h2>
+            <p className="text-sm text-gray-500 mt-1">{edition.title_fa}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasChanges && !showConfirmation && (
+              <button
+                type="button"
+                onClick={handleUndoAll}
+                className="px-3 py-1.5 text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors"
+              >
+                ↩️ برگرداندن همه
+              </button>
+            )}
+            <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 text-xl">✕</button>
+          </div>
+        </div>
+
+        {/* Messages */}
+        {message.text && (
+          <div className={`mx-5 mt-4 p-3 rounded-lg text-sm border ${
+            message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
+            message.type === 'error' ? 'bg-red-50 text-red-800 border-red-200' :
+            'bg-blue-50 text-blue-800 border-blue-200'
+          }`}>
+            {message.text}
+          </div>
+        )}
+
+        {/* ===== CONFIRMATION STEP ===== */}
+        {showConfirmation ? (
+          <div className="p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">📋 تایید تغییرات</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              {changes.length} فیلد تغییر کرده است. لطفاً تایید کنید:
+            </p>
+
+            <div className="space-y-3 mb-6 max-h-80 overflow-y-auto">
+              {changes.map(change => (
+                <div key={change.field} className="border border-gray-200 rounded-lg p-3">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="font-bold text-gray-800 text-sm">{change.label}</span>
+                    <button
+                      onClick={() => {
+                        handleUndoField(change.field);
+                        const updated = calculateChanges(getValues());
+                        setChanges(updated);
+                        if (updated.length === 0) setShowConfirmation(false);
+                      }}
+                      className="text-xs text-orange-600 hover:text-orange-800"
+                    >
+                      ↩️ برگرداندن
+                    </button>
+                  </div>
+
+                  {/* Tags diff */}
+                  {change.field === 'tags' ? (
+                    <div className="space-y-1 text-sm">
+                      {change.addedTags?.length > 0 && (
+                        <p className="text-green-700">➕ اضافه شده: {change.addedTags.join('، ')}</p>
+                      )}
+                      {change.removedTags?.length > 0 && (
+                        <p className="text-red-700">➖ حذف شده: {change.removedTags.join('، ')}</p>
+                      )}
+                    </div>
+                  ) : change.field === 'external_references' ? (
+                    /* Links diff */
+                    <div className="space-y-1 text-sm">
+                      {change.addedRefs?.length > 0 && (
+                        <p className="text-green-700" dir="ltr">➕ {change.addedRefs.join('، ')}</p>
+                      )}
+                      {change.removedRefs?.length > 0 && (
+                        <p className="text-red-700" dir="ltr">➖ {change.removedRefs.join('، ')}</p>
+                      )}
+                    </div>
+                  ) : (
+                    /* Scalar field diff */
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="p-2 bg-red-50 rounded border border-red-100">
+                        <p className="text-xs text-red-600 mb-1">قبلی:</p>
+                        <p className="text-gray-800 break-words">{change.oldValue}</p>
+                      </div>
+                      <div className="p-2 bg-green-50 rounded border border-green-100">
+                        <p className="text-xs text-green-600 mb-1">جدید:</p>
+                        <p className="text-gray-800 break-words">{change.newValue}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowConfirmation(false)}
+                className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+              >
+                بازگشت به ویرایش
+              </button>
+              <button
+                onClick={onConfirmSubmit}
+                disabled={submitting}
+                className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 transition-colors"
+              >
+                {submitting ? '⏳ در حال ثبت...' : '✅ تایید و اعمال تغییرات'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* ===== EDIT FORM ===== */
+          <FormProvider {...methods}>
+            <form onSubmit={handleSubmit(onPreviewChanges)} className="p-6 space-y-6">
+              <RequiredFields isCheckingDuplicate={false} lockedFields={{}} />
+
+              <button
+                type="button"
+                onClick={() => setShowOptional(!showOptional)}
+                className="w-full py-2 px-4 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 transition-all"
+              >
+                {showOptional ? '▲ بستن فیلدهای اختیاری' : '▼ فیلدهای اختیاری'}
+              </button>
+
+              {showOptional && <OptionalFields castWarning="" lockedFields={{}} />}
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-1.5">خلاصه اثر</label>
+                <textarea
+                  {...methods.register('synopsis')}
+                  rows={4}
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 bg-gray-50 focus:bg-white"
+                  placeholder="خلاصه‌ای از داستان..."
+                />
+              </div>
+
+              {/* Submit */}
+              <div className="flex gap-3 pt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="submit"
+                  disabled={!hasChanges}
+                  className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                >
+                  {hasChanges ? `پیش‌نمایش ${calculateChanges(currentFormData).length} تغییر` : 'بدون تغییر'}
+                </button>
+              </div>
+            </form>
+          </FormProvider>
+        )}
+      </div>
+    </div>
+  );
+}

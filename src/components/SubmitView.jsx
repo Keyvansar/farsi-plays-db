@@ -117,32 +117,37 @@ export default function SubmitView({ user }) {
     const checkDuplicate = async () => {
       setIsCheckingDuplicate(true);
       try {
-        const { data, error } = await supabase
-  .from('farsi_editions')
-  .select(`
-    id,
-    title_fa,
-    publisher,
-    publication_status,
-    publication_year_solar,
-    publication_year_gregorian,
-    original_year,
-    page_count,
-    isbn,
-    synopsis,
-    cast_men,
-    cast_women,
-    cast_nonspecific,
-    cast_total,
-    is_in_collection,
-    collection_title,
-    translator_fa,
-    works!inner(id, playwright_fa, original_title, source_language)
-  `)
-  .ilike('title_fa', `%${normalizedTitle}%`)
-  .limit(3);
+         const { data, error } = await supabase
+          .from('farsi_editions')
+          .select(`
+            id,
+            title_fa,
+            publisher,
+            publication_status,
+            publication_year_solar,
+            publication_year_gregorian,
+            original_year,
+            page_count,
+            isbn,
+            synopsis,
+            cast_men,
+            cast_women,
+            cast_nonspecific,
+            cast_total,
+            is_in_collection,
+            collection_title,
+            translator_fa,
+            works!inner(id, playwright_fa, original_title, source_language),
+            edition_tags(taxonomy_id, taxonomy(id, label_fa)),
+            external_references(id, url, ref_type)
+          `)
+          .ilike('title_fa', `%${normalizedTitle}%`)
+          .limit(3);
 
         if (error) throw error;
+  console.log('🔍 Duplicate matches:', data);
+        console.log('🏷️ First match tags:', data?.[0]?.edition_tags);
+        console.log('🔗 First match refs:', data?.[0]?.external_references);
         setDuplicateMatches(data || []);
         setSelectedMergeTarget((prev) => {
           if (prev && !(data || []).find(d => d.id === prev.id)) return null;
@@ -178,14 +183,21 @@ export default function SubmitView({ user }) {
   }, [watchedCastMen, watchedCastWomen, watchedCastNonspecific, watchedCastUnknown, setValue]);
  
  // ===== DUPLICATE COMPLETION HANDLER =====
-  const handleToggleComplete = (checked) => {
+    const handleToggleComplete = (checked) => {
     setIsCompletingDuplicate(checked);
 
     if (checked && selectedMergeTarget) {
       const ed = selectedMergeTarget;
       const work = ed.works || {};
 
-      // Build locked fields map (true = has data, should be locked)
+      // ========== STEP 1: EXTRACT DATA FIRST ==========
+      const editionTags = ed.edition_tags?.map(et => et.taxonomy?.label_fa).filter(Boolean) || [];
+      const editionRefs = ed.external_references?.filter(r => r.url).map(r => ({
+        url: r.url,
+        ref_type: r.ref_type || 'other',
+      })) || [];
+
+      // ========== STEP 2: BUILD LOCKS (uses editionTags/editionRefs) ==========
       const locks = {
         title_fa: !!ed.title_fa,
         playwright_fa: !!(work.playwright_fa && work.playwright_fa.length > 0),
@@ -206,35 +218,42 @@ export default function SubmitView({ user }) {
         publication_status: !!ed.publication_status,
         is_in_collection: !!ed.is_in_collection,
         collection_title: !!ed.collection_title,
+        tags: editionTags.length > 0,
+        external_references: editionRefs.length > 0,
       };
       setLockedFields(locks);
 
-      // Pre-fill form with existing data
-      setValue('title_fa', ed.title_fa || '');
-      setValue('playwright_fa', work.playwright_fa?.join(', ') || '');
-      setValue('translator_fa', ed.translator_fa?.join(', ') || '');
-      setValue('source_language', work.source_language || 'fa');
-      setValue('original_title', work.original_title || '');
-      setValue('publisher', ed.publisher || '');
-      setValue('publication_year_solar', ed.publication_year_solar?.toString() || '');
-      setValue('publication_year_gregorian', ed.publication_year_gregorian?.toString() || '');
-      setValue('original_year', ed.original_year?.toString() || '');
-      setValue('isbn', ed.isbn || '');
-      setValue('page_count', ed.page_count?.toString() || '');
-      setValue('synopsis', ed.synopsis || '');
-      setValue('cast_men', ed.cast_men?.toString() || '');
-      setValue('cast_women', ed.cast_women?.toString() || '');
-      setValue('cast_nonspecific', ed.cast_nonspecific?.toString() || '');
-      setValue('cast_total', ed.cast_total?.toString() || '');
-      setValue('publication_status', ed.publication_status || 'published');
-      setValue('is_in_collection', ed.is_in_collection || false);
-      setValue('collection_title', ed.collection_title || '');
-
-      // Auto-open optional fields so user can see what's locked
+      // ========== STEP 3: RESET FORM (uses editionTags/editionRefs) ==========
+      reset({
+        title_fa: ed.title_fa || '',
+        playwright_fa: work.playwright_fa?.join(', ') || '',
+        source_language: work.source_language || 'fa',
+        translator_fa: ed.translator_fa?.join(', ') || '',
+        publication_status: ed.publication_status || 'published',
+        publisher: ed.publisher || '',
+        is_in_collection: ed.is_in_collection || false,
+        collection_title: ed.collection_title || '',
+        original_title: work.original_title || '',
+        publication_year_solar: ed.publication_year_solar?.toString() || '',
+        publication_year_gregorian: ed.publication_year_gregorian?.toString() || '',
+        original_year: ed.original_year?.toString() || '',
+        isbn: ed.isbn || '',
+        page_count: ed.page_count?.toString() || '',
+        cast_men: ed.cast_men?.toString() || '',
+        cast_women: ed.cast_women?.toString() || '',
+        cast_nonspecific: ed.cast_nonspecific?.toString() || '',
+        cast_total: ed.cast_total?.toString() || '',
+        cast_unknown: !ed.cast_total && !ed.cast_men && !ed.cast_women,
+        synopsis: ed.synopsis || '',
+        tags: editionTags,
+        external_references: editionRefs.length > 0 ? editionRefs : [{ url: '', ref_type: 'other' }],
+        submitter_name: '',
+        submitter_email: '',
+      });
+           // ========== STEP 4: UI STATE ==========
       setShowOptional(true);
 
     } else {
-      // Uncheck: clear locks but keep form data
       setLockedFields({});
     }
   };
@@ -411,7 +430,21 @@ export default function SubmitView({ user }) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 md:p-8" dir="rtl">
       <h2 className="text-2xl font-bold text-gray-900 mb-6">✍️ ثبت اثر جدید</h2>
-
+      {/* Validation Errors Summary */}
+      {Object.keys(errors).length > 0 && (
+        <div className="p-4 mb-4 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200">
+          <p className="font-bold mb-2">⚠️ لطفاً خطاهای زیر را برطرف کنید:</p>
+          <ul className="list-disc list-inside space-y-1">
+            {errors.title_fa && <li>عنوان: {errors.title_fa.message}</li>}
+            {errors.playwright_fa && <li>نویسنده: {errors.playwright_fa.message}</li>}
+            {errors.translator_fa && <li>مترجم: {errors.translator_fa.message}</li>}
+            {errors.submitter_email && <li>ایمیل: {errors.submitter_email.message}</li>}
+            {errors.external_references && (
+              <li>لینک‌های خارجی: یک یا چند لینک نامعتبر است</li>
+            )}
+          </ul>
+        </div>
+      )}
       {message.text && (
         <div className={`p-4 mb-6 rounded-lg text-sm border ${message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
           {message.text}

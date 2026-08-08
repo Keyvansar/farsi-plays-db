@@ -62,6 +62,8 @@ export default function ExternalLinksSection() {
           className="flex-1 px-3 py-2 border rounded-lg text-sm"
           placeholder="https://example.com"
           dir="ltr"
+ pattern="https?://.*"
+  title="لینک باید با http:// یا https:// شروع شود"
         />
         <button
           type="button"
