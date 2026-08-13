@@ -129,9 +129,9 @@ export default function SearchView({ user }) {
           </details>
         </div>
 
-        {/* Results Count */}
-        <p className="text-sm text-gray-500 mb-4">
-          {totalCount} اثر یافت شد
+        {/* Results Count (announced to screen readers) */}
+        <p className="text-sm text-gray-500 mb-4" role="status" aria-live="polite">
+          {loading ? 'در حال جستجو...' : `${totalCount} اثر یافت شد`}
         </p>
 
         {/* Results */}
