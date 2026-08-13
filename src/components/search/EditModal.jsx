@@ -1,47 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useForm, FormProvider } from 'react-hook-form';
+import { useForm, FormProvider, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { supabase } from '../../lib/supabase';
+import { editionSchema } from '../../schemas/editionSchema';
 import RequiredFields from '../submit/RequiredFields';
 import OptionalFields from '../submit/OptionalFields';
-
-// ===== FORM SCHEMA =====
-const editSchema = z.object({
-  title_fa: z.string().min(3, 'عنوان باید حداقل ۳ حرف باشد'),
-  playwright_fa: z.string().min(3, 'نام نویسنده الزامی است'),
-  source_language: z.string().default('fa'),
-  translator_fa: z.string().optional().default(''),
-  publication_status: z.string().default('published'),
-  publisher: z.string().optional().default(''),
-  is_in_collection: z.boolean().default(false),
-  collection_title: z.string().optional().default(''),
-  original_title: z.string().optional().default(''),
-  publication_year_solar: z.string().optional().default(''),
-  publication_year_gregorian: z.string().optional().default(''),
-  original_year: z.string().optional().default(''),
-  isbn: z.string().optional().default(''),
-  page_count: z.string().optional().default(''),
-  cast_men: z.string().optional().default(''),
-  cast_women: z.string().optional().default(''),
-  cast_nonspecific: z.string().optional().default(''),
-  cast_total: z.string().optional().default(''),
-  cast_unknown: z.boolean().default(false),
-  synopsis: z.string().optional().default(''),
-  tags: z.array(z.string()).default([]),
-  external_references: z.array(z.object({
-    url: z.string().url('لینک نامعتبر است').or(z.literal('')),
-    ref_type: z.string().default('other'),
-  })).default([]),
-}).refine(
-  (data) => {
-    if (data.source_language !== 'fa') {
-      return data.translator_fa && data.translator_fa.trim().length >= 3;
-    }
-    return true;
-  },
-  { message: 'نام مترجم برای آثار ترجمه شده الزامی است', path: ['translator_fa'] }
-);
 
 // ===== FIELD LABELS =====
 const FIELD_LABELS = {
@@ -111,28 +74,32 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
   const originalValues = useMemo(() => editionToForm(edition), [edition]);
 
   const methods = useForm({
-    resolver: zodResolver(editSchema),
+    resolver: zodResolver(editionSchema),
     defaultValues: originalValues,
   });
 
-  const { handleSubmit, reset, watch, setValue, getValues } = methods;
-  const watchedCastUnknown = watch('cast_unknown');
+  const { handleSubmit, reset, watch, setValue, getValues, control } = methods;
 
-  // Cast total auto-calculation
+  // FIX 11.2: Use useWatch for stable field subscriptions
+  const watchedCastUnknown = useWatch({ control, name: 'cast_unknown' });
+  const watchedCastMen = useWatch({ control, name: 'cast_men' });
+  const watchedCastWomen = useWatch({ control, name: 'cast_women' });
+  const watchedCastNonspecific = useWatch({ control, name: 'cast_nonspecific' });
+
+  // Cast total auto-calculation (fixed dependency array)
   useEffect(() => {
     if (watchedCastUnknown) return;
-    const men = parseInt(watch('cast_men')) || 0;
-    const women = parseInt(watch('cast_women')) || 0;
-    const nonspecific = parseInt(watch('cast_nonspecific')) || 0;
+    const men = parseInt(watchedCastMen) || 0;
+    const women = parseInt(watchedCastWomen) || 0;
+    const nonspecific = parseInt(watchedCastNonspecific) || 0;
     const total = men + women + nonspecific;
     setValue('cast_total', total > 0 ? total.toString() : '', { shouldDirty: false });
-  }, [watch('cast_men'), watch('cast_women'), watch('cast_nonspecific'), watchedCastUnknown, setValue]);
+  }, [watchedCastMen, watchedCastWomen, watchedCastNonspecific, watchedCastUnknown, setValue]);
 
   // ===== CALCULATE CHANGES =====
   const calculateChanges = (formData) => {
     const diffs = [];
 
-    // Scalar fields
     Object.keys(FIELD_LABELS).forEach(key => {
       if (key === 'tags' || key === 'external_references') return;
 
@@ -304,27 +271,22 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
 
         // ===== REGULAR FIELDS =====
         } else {
-          // Determine which table the field belongs to
           const worksTableFields = ['playwright_fa', 'original_title', 'source_language'];
           const isWorksField = worksTableFields.includes(change.field);
 
-          // Field type definitions
           const arrayFields = ['translator_fa', 'playwright_fa'];
           const intFields = ['page_count', 'cast_men', 'cast_women', 'cast_nonspecific', 'cast_total', 'publication_year_solar', 'publication_year_gregorian', 'original_year'];
           const boolFields = ['is_in_collection', 'is_verified'];
 
           if (isWorksField) {
-            // ===== UPDATE WORKS TABLE =====
+            // UPDATE WORKS TABLE
             const workId = edition.works?.id;
             if (!workId) {
-              console.error('Cannot update works field: no work_id found');
               continue;
             }
 
             const updatePayload = {};
-
             if (arrayFields.includes(change.field)) {
-              // FIX 8.2: Split on both English comma and Farsi comma
               updatePayload[change.field] = change.newValue === '(خالی)'
                 ? []
                 : change.newValue.split(/[,،]/).map(s => s.trim()).filter(Boolean);
@@ -340,7 +302,7 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
             if (workUpdateError) throw workUpdateError;
 
           } else {
-            // ===== UPDATE FARSI_EDITIONS TABLE =====
+            // UPDATE FARSI_EDITIONS TABLE
             const updatePayload = {};
 
             if (intFields.includes(change.field)) {
@@ -348,7 +310,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
             } else if (boolFields.includes(change.field)) {
               updatePayload[change.field] = change.newValue === 'true' || change.newValue === 'بله';
             } else if (arrayFields.includes(change.field)) {
-              // FIX 8.2: Split on both English and Farsi comma
               updatePayload[change.field] = change.newValue === '(خالی)'
                 ? []
                 : change.newValue.split(/[,،]/).map(s => s.trim()).filter(Boolean);
@@ -382,7 +343,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
       }, 1500);
 
     } catch (err) {
-      console.error('Direct edit error:', err);
       setMessage({ type: 'error', text: `خطا در اعمال تغییرات: ${err.message}` });
     } finally {
       setSubmitting(false);
@@ -454,7 +414,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
                     </button>
                   </div>
 
-                  {/* Tags diff */}
                   {change.field === 'tags' ? (
                     <div className="space-y-1 text-sm">
                       {change.addedTags?.length > 0 && (
@@ -465,7 +424,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
                       )}
                     </div>
                   ) : change.field === 'external_references' ? (
-                    /* Links diff */
                     <div className="space-y-1 text-sm">
                       {change.addedRefs?.length > 0 && (
                         <p className="text-green-700" dir="ltr">➕ {change.addedRefs.join('، ')}</p>
@@ -475,7 +433,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
                       )}
                     </div>
                   ) : (
-                    /* Scalar field diff */
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div className="p-2 bg-red-50 rounded border border-red-100">
                         <p className="text-xs text-red-600 mb-1">قبلی:</p>

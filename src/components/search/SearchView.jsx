@@ -10,7 +10,6 @@ import DeleteConfirmModal from './DeleteConfirmModal';
 import Pagination from './Pagination';
 
 const ITEMS_PER_PAGE = 20;
-const MAX_FETCH_FOR_CLIENT_FILTER = 500;
 
 const defaultFilters = {
   playwrights: [],
@@ -155,159 +154,75 @@ export default function SearchView({ user }) {
     loadOptions();
   }, []);
 
-  // ===== DETECT WHEN CLIENT-SIDE FILTERING IS NEEDED =====
-  // BUG FIX #1: Include text search scopes that require client-side filtering
-  const needsClientSideFiltering =
-    filters.tags.length > 1 ||
-    filters.hasLinks ||
-    filters.playwrights.length > 0 ||
-    (searchTerm.trim() && ['all', 'author', 'translator'].includes(searchScope));
-
-  // ===== FETCH RESULTS =====
+  // ===== FETCH RESULTS VIA RPC =====
   const fetchResults = useCallback(async () => {
     setLoading(true);
-    const term = searchTerm.trim();
 
-    // Always use non-inner join for tags display (BUG FIX #2)
-    const tagsJoin = filters.tags.length > 0
-      ? 'edition_tags!inner(taxonomy_id, taxonomy(id, label_fa))'
-      : 'edition_tags(taxonomy_id, taxonomy(id, label_fa))';
+    try {
+      const { data, error } = await supabase.rpc('search_editions', {
+        search_term: searchTerm.trim(),
+        search_scope: searchScope,
+        playwrights: filters.playwrights,
+        translators: filters.translators,
+        source_type: filters.sourceType,
+        year_min: filters.yearMin ? parseInt(filters.yearMin) : null,
+        year_max: filters.yearMax ? parseInt(filters.yearMax) : null,
+        status: filters.status,
+        tags: filters.tags,
+        cast_min: filters.castMin ? parseInt(filters.castMin) : null,
+        cast_max: filters.castMax ? parseInt(filters.castMax) : null,
+        verified_only: filters.verifiedOnly,
+        has_synopsis: filters.hasSynopsis,
+        in_collection: filters.inCollection,
+        has_links: filters.hasLinks,
+        page_number: page,
+        page_size: ITEMS_PER_PAGE,
+      });
 
-    const selectString = `*, works!inner(*), ${tagsJoin}, external_references(id, url, ref_type)`;
+      if (error) throw error;
 
-    let query = supabase
-      .from('farsi_editions')
-      .select(selectString, { count: 'exact' });
+      // Transform RPC results to match the expected format
+      const transformedResults = (data || []).map(row => ({
+        id: row.edition_id,
+        title_fa: row.title_fa,
+        publisher: row.publisher,
+        publication_status: row.publication_status,
+        publication_year_solar: row.publication_year_solar,
+        publication_year_gregorian: row.publication_year_gregorian,
+        original_year: row.original_year,
+        page_count: row.page_count,
+        isbn: row.isbn,
+        synopsis: row.synopsis,
+        cast_men: row.cast_men,
+        cast_women: row.cast_women,
+        cast_nonspecific: row.cast_nonspecific,
+        cast_total: row.cast_total,
+        is_in_collection: row.is_in_collection,
+        collection_title: row.collection_title,
+        translator_fa: row.translator_fa,
+        is_verified: row.is_verified,
+        flag_count: row.flag_count,
+        works: {
+          id: row.work_id,
+          playwright_fa: row.work_playwright_fa,
+          original_title: row.work_original_title,
+          source_language: row.work_source_language,
+        },
+        edition_tags: row.edition_tags || [],
+        external_references: row.external_references || [],
+      }));
 
-    // --- Server-side text search (only for plain TEXT fields) ---
-    if (term) {
-      if (searchScope === 'title') query = query.ilike('title_fa', `%${term}%`);
-      else if (searchScope === 'publisher') query = query.ilike('publisher', `%${term}%`);
-      else if (searchScope === 'synopsis') query = query.ilike('synopsis', `%${term}%`);
-      // 'author', 'translator', 'all' → handled client-side
-    }
+      setResults(transformedResults);
+      setTotalCount(data?.[0]?.total_count || 0);
 
-    // --- Server-side filters ---
-    if (filters.verifiedOnly) query = query.eq('is_verified', true);
-    if (filters.hasSynopsis) query = query.not('synopsis', 'is', null);
-    if (filters.inCollection) query = query.eq('is_in_collection', true);
-    if (filters.status !== 'all') query = query.eq('publication_status', filters.status);
-    if (filters.yearMin) query = query.gte('publication_year_solar', parseInt(filters.yearMin));
-    if (filters.yearMax) query = query.lte('publication_year_solar', parseInt(filters.yearMax));
-    if (filters.castMin) query = query.gte('cast_total', parseInt(filters.castMin));
-    if (filters.castMax) query = query.lte('cast_total', parseInt(filters.castMax));
-    if (filters.sourceType === 'fa') query = query.eq('works.source_language', 'fa');
-    else if (filters.sourceType === 'translated') query = query.neq('works.source_language', 'fa');
-
-    // --- Server-side tag filter (single tag) ---
-    if (filters.tags.length === 1) {
-      query = query.eq('edition_tags.taxonomy_id', filters.tags[0]);
-    }
-
-    // --- Server-side translator filter ---
-    if (filters.translators.length > 0) {
-      query = query.overlaps('translator_fa', filters.translators);
-    }
-
-    // --- Pagination ---
-    // BUG FIX #1 & #3: When client-side filtering is needed, fetch more results
-    const fetchSize = needsClientSideFiltering ? MAX_FETCH_FOR_CLIENT_FILTER : ITEMS_PER_PAGE;
-    const from = needsClientSideFiltering ? 0 : (page - 1) * ITEMS_PER_PAGE;
-    const to = from + fetchSize - 1;
-    query = query.order('created_at', { ascending: false }).range(from, to);
-
-    const { data, error, count } = await query;
-
-    if (error) {
-      console.error('Search error:', error);
+    } catch (err) {
+      console.error('Search error:', err);
       setResults([]);
       setTotalCount(0);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    let filtered = data || [];
-
-    // --- Deduplicate by edition ID ---
-    const seen = new Set();
-    filtered = filtered.filter(ed => {
-      if (seen.has(ed.id)) return false;
-      seen.add(ed.id);
-      return true;
-    });
-
-    // --- Client-side: Text search for array fields & 'all' scope ---
-    if (term) {
-      filtered = filtered.filter(ed => {
-        switch (searchScope) {
-          case 'title': return ed.title_fa?.includes(term);
-          case 'publisher': return ed.publisher?.includes(term);
-          case 'synopsis': return ed.synopsis?.includes(term);
-          case 'author': return ed.works?.playwright_fa?.some(p => p.includes(term));
-          case 'translator': return ed.translator_fa?.some(t => t.includes(term));
-          case 'all':
-          default:
-            return (
-              ed.title_fa?.includes(term) ||
-              ed.publisher?.includes(term) ||
-              ed.synopsis?.includes(term) ||
-              ed.collection_title?.includes(term) ||
-              ed.works?.playwright_fa?.some(p => p.includes(term)) ||
-              ed.translator_fa?.some(t => t.includes(term))
-            );
-        }
-      });
-    }
-
-    // --- Client-side: Playwright filter ---
-    if (filters.playwrights.length > 0) {
-      filtered = filtered.filter(edition =>
-        filters.playwrights.some(pw => edition.works?.playwright_fa?.includes(pw))
-      );
-    }
-
-    // --- Client-side: AND filter for multiple tags ---
-    if (filters.tags.length > 1) {
-      filtered = filtered.filter(edition => {
-        const editionTagIds = edition.edition_tags?.map(et => et.taxonomy_id) || [];
-        return filters.tags.every(tagId => editionTagIds.includes(tagId));
-      });
-    }
-
-    // --- Client-side: Has links filter ---
-    if (filters.hasLinks) {
-      filtered = filtered.filter(ed => ed.external_references?.length > 0);
-    }
-
-    // --- BUG FIX #2: Fetch ALL tags for displayed editions ---
-    if (filters.tags.length > 0 && filtered.length > 0) {
-      const editionIds = filtered.map(e => e.id);
-      const { data: allTagsData } = await supabase
-        .from('edition_tags')
-        .select('farsi_edition_id, taxonomy_id, taxonomy(id, label_fa)')
-        .in('farsi_edition_id', editionIds);
-
-      if (allTagsData) {
-        filtered = filtered.map(ed => ({
-          ...ed,
-          edition_tags: allTagsData.filter(t => t.farsi_edition_id === ed.id),
-        }));
-      }
-    }
-
-    // --- BUG FIX #3: Correct pagination and count ---
-    if (needsClientSideFiltering) {
-      setTotalCount(filtered.length);
-      const clientFrom = (page - 1) * ITEMS_PER_PAGE;
-      const clientTo = clientFrom + ITEMS_PER_PAGE;
-      setResults(filtered.slice(clientFrom, clientTo));
-    } else {
-      setTotalCount(count ?? filtered.length);
-      setResults(filtered);
-    }
-
-    setLoading(false);
-  }, [searchTerm, searchScope, filters, page, needsClientSideFiltering]);
+  }, [searchTerm, searchScope, filters, page]);
 
   useEffect(() => {
     if (!initialized) return;
@@ -397,9 +312,6 @@ export default function SearchView({ user }) {
         {/* Results Count */}
         <p className="text-sm text-gray-500 mb-4">
           {totalCount} اثر یافت شد
-          {needsClientSideFiltering && (
-            <span className="mr-2 text-xs text-orange-500">(فیلتر پیشرفته فعال است)</span>
-          )}
         </p>
 
         {/* Results */}
