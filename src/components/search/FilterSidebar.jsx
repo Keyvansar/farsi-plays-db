@@ -1,5 +1,7 @@
 import React from 'react';
 import AutocompleteFilter from './AutocompleteFilter';
+import AutocompleteSelect from '../ui/AutocompleteSelect';
+import { supabase } from '../../lib/supabase';
 
 export default function FilterSidebar({
   filters, setFilters,
@@ -18,22 +20,38 @@ export default function FilterSidebar({
           </button>
         )}
       </div>
+          {/* ===== Writers ===== */}
 
-      {/* Playwright Autocomplete */}
-      <AutocompleteFilter
-        label="نویسنده"
-        options={playwrights}
-        selected={filters.playwrights}
-        onChange={(val) => updateFilter('playwrights', val)}
-      />
+      <AutocompleteSelect
+  label="نویسندگان"
+  selectedValues={filters.playwrights}
+  onChange={(newValues) => setFilters({ ...filters, playwrights: newValues })}
+  searchFn={async (term) => {
+    const { data } = await supabase.rpc('search_playwrights', {
+      search_term: term,
+      limit_val: 50,
+    });
+    // FIX: Extract .name from the row object
+    return (data || []).map(row => ({ value: row.name, label: row.name }));
+  }}
+  placeholder="نام نویسنده..."
+/>
 
-      {/* Translator Autocomplete */}
-      <AutocompleteFilter
-        label="مترجم"
-        options={translators}
-        selected={filters.translators}
-        onChange={(val) => updateFilter('translators', val)}
-      />
+      {/* ===== Translators ===== */}
+<AutocompleteSelect
+  label="مترجمان"
+  selectedValues={filters.translators}
+  onChange={(newValues) => setFilters({ ...filters, translators: newValues })}
+  searchFn={async (term) => {
+    const { data } = await supabase.rpc('search_translators', {
+      search_term: term,
+      limit_val: 50,
+    });
+    // FIX: Extract .name from the row object
+    return (data || []).map(row => ({ value: row.name, label: row.name }));
+  }}
+  placeholder="نام مترجم..."
+/>
 
       {/* Source Language */}
       <div>
@@ -84,31 +102,21 @@ export default function FilterSidebar({
         </select>
       </div>
 
-      {/* Tags */}
-      <div>
-        <label className="block text-sm font-semibold text-gray-700 mb-1.5">برچسب‌ها</label>
-        <div className="flex flex-wrap gap-1.5">
-          {tags.map(tag => (
-            <button
-              key={tag.id}
-              onClick={() => {
-                const isSelected = filters.tags.includes(tag.id);
-                updateFilter('tags', isSelected
-                  ? filters.tags.filter(t => t !== tag.id)
-                  : [...filters.tags, tag.id]
-                );
-              }}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                filters.tags.includes(tag.id)
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-              }`}
-            >
-              {tag.label_fa}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* ===== Tags ===== */}
+<AutocompleteSelect
+  label="برچسب‌ها"
+  selectedValues={filters.tags}
+  onChange={(newValues) => setFilters({ ...filters, tags: newValues })}
+  searchFn={async (term) => {
+    const { data } = await supabase.rpc('search_tags', {
+      search_term: term,
+      limit_val: 50,
+    });
+    // FIX: Extract .id and .label_fa from the row object
+    return (data || []).map(row => ({ value: row.id, label: row.label_fa }));
+  }}
+  placeholder="جستجوی برچسب..."
+/>
 
       {/* Cast Size */}
       <div>

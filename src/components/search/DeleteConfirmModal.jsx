@@ -1,36 +1,30 @@
 import React, { useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import Modal from '../ui/Modal';
 
 const DELETE_REASONS = [
-  { key: 'duplicate', label: 'تکراری' },
-  { key: 'spam', label: 'اسپم' },
-  { key: 'fake', label: 'جعلی' },
-  { key: 'other', label: 'دلایل دیگر' },
+  { key: 'duplicate', label: 'تکراری', icon: '📑' },
+  { key: 'spam', label: 'اسپم', icon: '🚫' },
+  { key: 'fake', label: 'جعلی', icon: '⚠️' },
+  { key: 'other', label: 'دلایل دیگر', icon: '📝' },
 ];
 
 export default function DeleteConfirmModal({ edition, user, onClose, onSubmitted }) {
-  const [selectedReasons, setSelectedReasons] = useState([]);
+  const [reasons, setReasons] = useState([]);
   const [otherReason, setOtherReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
   const toggleReason = (key) => {
-    setSelectedReasons(prev =>
+    setReasons(prev =>
       prev.includes(key) ? prev.filter(r => r !== key) : [...prev, key]
     );
   };
 
+  const needsOtherText = reasons.includes('other');
+  const canSubmit = reasons.length > 0 && (!needsOtherText || otherReason.trim().length >= 3);
+
   const handleSubmit = async () => {
-    if (selectedReasons.length === 0) {
-      setMessage({ type: 'error', text: 'لطفاً حداقل یک دلیل انتخاب کنید.' });
-      return;
-    }
-
-    if (selectedReasons.includes('other') && !otherReason.trim()) {
-      setMessage({ type: 'error', text: 'لطفاً دلیل دیگر را توضیح دهید.' });
-      return;
-    }
-
     setSubmitting(true);
     setMessage({ type: '', text: '' });
 
@@ -38,92 +32,117 @@ export default function DeleteConfirmModal({ edition, user, onClose, onSubmitted
       const { error } = await supabase.from('pending_submissions').insert({
         action_type: 'delete_suggestion',
         edition_id: edition.id,
+        field_name: 'delete',
         submitted_by: user?.id || null,
         payload: {
           title_fa: edition.title_fa,
-          delete_reasons: selectedReasons,
-          other_reason: selectedReasons.includes('other') ? otherReason : null,
+          delete_reasons: reasons,
+          other_reason: otherReason.trim() || null,
         },
       });
 
       if (error) throw error;
 
-      setMessage({ type: 'success', text: '✅ پیشنهاد حذف ثبت شد و پس از تایید مدیر اعمال می‌شود.' });
+      setMessage({ type: 'success', text: '✅ پیشنهاد حذف برای بررسی ثبت شد.' });
       setTimeout(() => {
         onSubmitted?.();
         onClose();
-      }, 1500);
+      }, 1200);
 
     } catch (err) {
       console.error('Delete suggestion error:', err);
-      setMessage({ type: 'error', text: 'خطا در ثبت پیشنهاد حذف.' });
+      setMessage({ type: 'error', text: `خطا در ثبت پیشنهاد: ${err.message}` });
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir="rtl">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
-
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-red-600">🗑️ پیشنهاد حذف</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400">✕</button>
-        </div>
-
-        <p className="text-sm text-gray-600 mb-4">
-          در حال پیشنهاد حذف: <strong>{edition.title_fa}</strong>
+    <Modal
+      onClose={onClose}
+      title="🗑️ پیشنهاد حذف اثر"
+      subtitle={edition?.title_fa}
+      maxWidth="max-w-md"
+    >
+      <div className="p-6 space-y-4">
+        <p className="text-sm text-gray-600">
+          این اثر برای حذف پیشنهاد خواهد شد و پس از بررسی توسط ویراستاران، تصمیم نهایی گرفته می‌شود.
         </p>
 
+        {/* Messages */}
         {message.text && (
-          <div className={`p-3 mb-4 rounded-lg text-sm ${message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+          <div className={`p-3 rounded-lg text-sm border ${
+            message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
+            'bg-red-50 text-red-800 border-red-200'
+          }`}>
             {message.text}
           </div>
         )}
 
         {/* Reason Checkboxes */}
-        <div className="mb-4">
-          <label className="block text-sm font-semibold text-gray-800 mb-2">دلیل حذف:</label>
+        <div>
+          <label className="block text-sm font-semibold text-gray-800 mb-2">
+            دلیل پیشنهاد حذف <span className="text-red-500">*</span>
+          </label>
           <div className="space-y-2">
-            {DELETE_REASONS.map(reason => (
-              <label key={reason.key} className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-gray-50">
+            {DELETE_REASONS.map(r => (
+              <label
+                key={r.key}
+                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                  reasons.includes(r.key)
+                    ? 'bg-red-50 border-red-200'
+                    : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
                 <input
                   type="checkbox"
-                  checked={selectedReasons.includes(reason.key)}
-                  onChange={() => toggleReason(reason.key)}
-                  className="w-5 h-5 text-red-600 rounded border-gray-300 focus:ring-red-500"
+                  checked={reasons.includes(r.key)}
+                  onChange={() => toggleReason(r.key)}
+                  className="w-4 h-4 rounded text-red-600 focus:ring-red-500"
                 />
-                <span className="text-sm">{reason.label}</span>
+                <span className="text-sm font-medium text-gray-800">
+                  {r.icon} {r.label}
+                </span>
               </label>
             ))}
           </div>
         </div>
 
-        {/* Other Reason Textbox */}
-        {selectedReasons.includes('other') && (
-          <div className="mb-4">
-            <label className="block text-sm font-semibold text-gray-800 mb-1.5">توضیح دلیل دیگر:</label>
+        {/* Other Reason Text */}
+        {needsOtherText && (
+          <div>
+            <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+              توضیح دلیل <span className="text-red-500">*</span>
+            </label>
             <textarea
               value={otherReason}
               onChange={(e) => setOtherReason(e.target.value)}
               rows={3}
-              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-red-500 focus:ring-0"
-              placeholder="لطفاً دلیل حذف را توضیح دهید..."
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-red-500 focus:ring-0 bg-gray-50 focus:bg-white"
+              placeholder="لطفاً دلیل حذف را شرح دهید..."
             />
           </div>
         )}
 
-        {/* Submit */}
-        <button
-          onClick={handleSubmit}
-          disabled={submitting || selectedReasons.length === 0}
-          className="w-full py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 disabled:opacity-50 transition-colors"
-        >
-          {submitting ? '⏳ در حال ثبت...' : '🗑️ ثبت پیشنهاد حذف'}
-        </button>
+        {/* Actions */}
+        <div className="flex gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+          >
+            انصراف
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!canSubmit || submitting}
+            className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 disabled:opacity-50 transition-colors"
+          >
+            {submitting ? '⏳ در حال ثبت...' : '🗑️ ثبت پیشنهاد حذف'}
+          </button>
+        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

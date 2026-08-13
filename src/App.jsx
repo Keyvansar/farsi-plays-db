@@ -9,6 +9,7 @@ import SubmitView from './components/SubmitView';
 import ModerationView from './components/ModerationView';
 import AccountView from './components/AccountView';
 import ResetPasswordView from './components/ResetPasswordView';
+import ErrorBoundary from './components/ui/ErrorBoundary';
 
 // ===== MAIN CONTENT COMPONENT =====
 function AppContent() {
@@ -243,12 +244,12 @@ function AppContent() {
 
         {/* ROUTING LOGIC */}
         <Routes>
-          <Route path="/" element={<SearchView user={user} />} />
-          <Route path="/submit" element={<SubmitView user={user} />} />
-          <Route path="/moderate" element={user ? <ModerationView /> : <Navigate to="/" replace />} />
-          <Route path="/account" element={user ? <AccountView user={user} /> : <Navigate to="/" replace />} />
-          <Route path="/reset-password" element={<ResetPasswordView />} />
-          <Route path="/login" element={<LoginForm />} />
+          <Route path="/" element={<ErrorBoundary><SearchView user={user} /></ErrorBoundary>} />
+          <Route path="/submit" element={<ErrorBoundary><SubmitView user={user} /></ErrorBoundary>} />
+          <Route path="/moderate" element={user ? <ErrorBoundary><ModerationView /></ErrorBoundary> : <Navigate to="/" replace />} />
+          <Route path="/account" element={user ? <ErrorBoundary><AccountView user={user} /></ErrorBoundary> : <Navigate to="/" replace />} />
+          <Route path="/reset-password" element={<ErrorBoundary><ResetPasswordView /></ErrorBoundary>} />
+          <Route path="/login" element={<ErrorBoundary><LoginForm /></ErrorBoundary>} />
         </Routes>
 
       </div>

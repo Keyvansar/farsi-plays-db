@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useForm, FormProvider, useWatch } from 'react-hook-form';
+import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { supabase } from '../../lib/supabase';
 import { editionSchema } from '../../schemas/editionSchema';
 import RequiredFields from '../submit/RequiredFields';
 import OptionalFields from '../submit/OptionalFields';
+import Modal from '../ui/Modal';
+import { useCastTotal } from '../../hooks/useCastTotal';
 
 // ===== FIELD LABELS =====
 const FIELD_LABELS = {
@@ -80,21 +82,8 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
 
   const { handleSubmit, reset, watch, setValue, getValues, control } = methods;
 
-  // FIX 11.2: Use useWatch for stable field subscriptions
-  const watchedCastUnknown = useWatch({ control, name: 'cast_unknown' });
-  const watchedCastMen = useWatch({ control, name: 'cast_men' });
-  const watchedCastWomen = useWatch({ control, name: 'cast_women' });
-  const watchedCastNonspecific = useWatch({ control, name: 'cast_nonspecific' });
-
-  // Cast total auto-calculation (fixed dependency array)
-  useEffect(() => {
-    if (watchedCastUnknown) return;
-    const men = parseInt(watchedCastMen) || 0;
-    const women = parseInt(watchedCastWomen) || 0;
-    const nonspecific = parseInt(watchedCastNonspecific) || 0;
-    const total = men + women + nonspecific;
-    setValue('cast_total', total > 0 ? total.toString() : '', { shouldDirty: false });
-  }, [watchedCastMen, watchedCastWomen, watchedCastNonspecific, watchedCastUnknown, setValue]);
+   // Auto-calculate cast total (shared hook)
+  useCastTotal(control, setValue);
 
   // ===== CALCULATE CHANGES =====
   const calculateChanges = (formData) => {
@@ -115,7 +104,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
       }
     });
 
-    // Tags changes
     const oldTags = originalValues.tags || [];
     const newTags = (formData.tags || []).filter(t => t);
     const addedTags = newTags.filter(t => !oldTags.includes(t));
@@ -132,7 +120,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
       });
     }
 
-    // External references changes
     const oldRefs = (originalValues.external_references || []).map(r => r.url);
     const newRefs = (formData.external_references || []).filter(r => r.url).map(r => r.url);
     const addedRefs = newRefs.filter(u => !oldRefs.includes(u));
@@ -279,11 +266,8 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
           const boolFields = ['is_in_collection', 'is_verified'];
 
           if (isWorksField) {
-            // UPDATE WORKS TABLE
             const workId = edition.works?.id;
-            if (!workId) {
-              continue;
-            }
+            if (!workId) continue;
 
             const updatePayload = {};
             if (arrayFields.includes(change.field)) {
@@ -302,7 +286,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
             if (workUpdateError) throw workUpdateError;
 
           } else {
-            // UPDATE FARSI_EDITIONS TABLE
             const updatePayload = {};
 
             if (intFields.includes(change.field)) {
@@ -325,7 +308,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
             if (updateError) throw updateError;
           }
 
-          // Log to edit_history
           await supabase.from('edit_history').insert({
             edition_id: edition.id,
             field_name: change.field,
@@ -353,164 +335,156 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
   const hasChanges = calculateChanges(currentFormData).length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir="rtl">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
+    <Modal
+      onClose={onClose}
+      title="✏️ ویرایش اثر"
+      subtitle={edition.title_fa}
+      maxWidth="max-w-3xl"
+      headerActions={
+        hasChanges && !showConfirmation ? (
+          <button
+            type="button"
+            onClick={handleUndoAll}
+            className="px-3 py-1.5 text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors"
+          >
+            ↩️ برگرداندن همه
+          </button>
+        ) : null
+      }
+    >
+      {/* Messages */}
+      {message.text && (
+        <div className={`mx-5 mt-4 p-3 rounded-lg text-sm border ${
+          message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
+          message.type === 'error' ? 'bg-red-50 text-red-800 border-red-200' :
+          'bg-blue-50 text-blue-800 border-blue-200'
+        }`}>
+          {message.text}
+        </div>
+      )}
 
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-100 p-5 flex justify-between items-center rounded-t-2xl z-10">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">✏️ ویرایش اثر</h2>
-            <p className="text-sm text-gray-500 mt-1">{edition.title_fa}</p>
+      {/* ===== CONFIRMATION STEP ===== */}
+      {showConfirmation ? (
+        <div className="p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">📋 تایید تغییرات</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            {changes.length} فیلد تغییر کرده است. لطفاً تایید کنید:
+          </p>
+
+          <div className="space-y-3 mb-6 max-h-80 overflow-y-auto">
+            {changes.map(change => (
+              <div key={change.field} className="border border-gray-200 rounded-lg p-3">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="font-bold text-gray-800 text-sm">{change.label}</span>
+                  <button
+                    onClick={() => {
+                      handleUndoField(change.field);
+                      const updated = calculateChanges(getValues());
+                      setChanges(updated);
+                      if (updated.length === 0) setShowConfirmation(false);
+                    }}
+                    className="text-xs text-orange-600 hover:text-orange-800"
+                  >
+                    ↩️ برگرداندن
+                  </button>
+                </div>
+
+                {change.field === 'tags' ? (
+                  <div className="space-y-1 text-sm">
+                    {change.addedTags?.length > 0 && (
+                      <p className="text-green-700">➕ اضافه شده: {change.addedTags.join('، ')}</p>
+                    )}
+                    {change.removedTags?.length > 0 && (
+                      <p className="text-red-700">➖ حذف شده: {change.removedTags.join('، ')}</p>
+                    )}
+                  </div>
+                ) : change.field === 'external_references' ? (
+                  <div className="space-y-1 text-sm">
+                    {change.addedRefs?.length > 0 && (
+                      <p className="text-green-700" dir="ltr">➕ {change.addedRefs.join('، ')}</p>
+                    )}
+                    {change.removedRefs?.length > 0 && (
+                      <p className="text-red-700" dir="ltr">➖ {change.removedRefs.join('، ')}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="p-2 bg-red-50 rounded border border-red-100">
+                      <p className="text-xs text-red-600 mb-1">قبلی:</p>
+                      <p className="text-gray-800 break-words">{change.oldValue}</p>
+                    </div>
+                    <div className="p-2 bg-green-50 rounded border border-green-100">
+                      <p className="text-xs text-green-600 mb-1">جدید:</p>
+                      <p className="text-gray-800 break-words">{change.newValue}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-          <div className="flex items-center gap-2">
-            {hasChanges && !showConfirmation && (
-              <button
-                type="button"
-                onClick={handleUndoAll}
-                className="px-3 py-1.5 text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors"
-              >
-                ↩️ برگرداندن همه
-              </button>
-            )}
-            <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 text-xl">✕</button>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowConfirmation(false)}
+              className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+            >
+              بازگشت به ویرایش
+            </button>
+            <button
+              onClick={onConfirmSubmit}
+              disabled={submitting}
+              className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 transition-colors"
+            >
+              {submitting ? '⏳ در حال ثبت...' : '✅ تایید و اعمال تغییرات'}
+            </button>
           </div>
         </div>
+      ) : (
+        /* ===== EDIT FORM ===== */
+        <FormProvider {...methods}>
+          <form onSubmit={handleSubmit(onPreviewChanges)} className="p-6 space-y-6">
+            <RequiredFields isCheckingDuplicate={false} lockedFields={{}} />
 
-        {/* Messages */}
-        {message.text && (
-          <div className={`mx-5 mt-4 p-3 rounded-lg text-sm border ${
-            message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
-            message.type === 'error' ? 'bg-red-50 text-red-800 border-red-200' :
-            'bg-blue-50 text-blue-800 border-blue-200'
-          }`}>
-            {message.text}
-          </div>
-        )}
+            <button
+              type="button"
+              onClick={() => setShowOptional(!showOptional)}
+              className="w-full py-2 px-4 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 transition-all"
+            >
+              {showOptional ? '▲ بستن فیلدهای اختیاری' : '▼ فیلدهای اختیاری'}
+            </button>
 
-        {/* ===== CONFIRMATION STEP ===== */}
-        {showConfirmation ? (
-          <div className="p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">📋 تایید تغییرات</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              {changes.length} فیلد تغییر کرده است. لطفاً تایید کنید:
-            </p>
+            {showOptional && <OptionalFields castWarning="" lockedFields={{}} />}
 
-            <div className="space-y-3 mb-6 max-h-80 overflow-y-auto">
-              {changes.map(change => (
-                <div key={change.field} className="border border-gray-200 rounded-lg p-3">
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="font-bold text-gray-800 text-sm">{change.label}</span>
-                    <button
-                      onClick={() => {
-                        handleUndoField(change.field);
-                        const updated = calculateChanges(getValues());
-                        setChanges(updated);
-                        if (updated.length === 0) setShowConfirmation(false);
-                      }}
-                      className="text-xs text-orange-600 hover:text-orange-800"
-                    >
-                      ↩️ برگرداندن
-                    </button>
-                  </div>
-
-                  {change.field === 'tags' ? (
-                    <div className="space-y-1 text-sm">
-                      {change.addedTags?.length > 0 && (
-                        <p className="text-green-700">➕ اضافه شده: {change.addedTags.join('، ')}</p>
-                      )}
-                      {change.removedTags?.length > 0 && (
-                        <p className="text-red-700">➖ حذف شده: {change.removedTags.join('، ')}</p>
-                      )}
-                    </div>
-                  ) : change.field === 'external_references' ? (
-                    <div className="space-y-1 text-sm">
-                      {change.addedRefs?.length > 0 && (
-                        <p className="text-green-700" dir="ltr">➕ {change.addedRefs.join('، ')}</p>
-                      )}
-                      {change.removedRefs?.length > 0 && (
-                        <p className="text-red-700" dir="ltr">➖ {change.removedRefs.join('، ')}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div className="p-2 bg-red-50 rounded border border-red-100">
-                        <p className="text-xs text-red-600 mb-1">قبلی:</p>
-                        <p className="text-gray-800 break-words">{change.oldValue}</p>
-                      </div>
-                      <div className="p-2 bg-green-50 rounded border border-green-100">
-                        <p className="text-xs text-green-600 mb-1">جدید:</p>
-                        <p className="text-gray-800 break-words">{change.newValue}</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+            <div>
+              <label className="block text-sm font-semibold text-gray-800 mb-1.5">خلاصه اثر</label>
+              <textarea
+                {...methods.register('synopsis')}
+                rows={4}
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 bg-gray-50 focus:bg-white"
+                placeholder="خلاصه‌ای از داستان..."
+              />
             </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowConfirmation(false)}
-                className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
-              >
-                بازگشت به ویرایش
-              </button>
-              <button
-                onClick={onConfirmSubmit}
-                disabled={submitting}
-                className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 transition-colors"
-              >
-                {submitting ? '⏳ در حال ثبت...' : '✅ تایید و اعمال تغییرات'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* ===== EDIT FORM ===== */
-          <FormProvider {...methods}>
-            <form onSubmit={handleSubmit(onPreviewChanges)} className="p-6 space-y-6">
-              <RequiredFields isCheckingDuplicate={false} lockedFields={{}} />
-
+            {/* Submit */}
+            <div className="flex gap-3 pt-4 border-t border-gray-100">
               <button
                 type="button"
-                onClick={() => setShowOptional(!showOptional)}
-                className="w-full py-2 px-4 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 transition-all"
+                onClick={onClose}
+                className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
               >
-                {showOptional ? '▲ بستن فیلدهای اختیاری' : '▼ فیلدهای اختیاری'}
+                انصراف
               </button>
-
-              {showOptional && <OptionalFields castWarning="" lockedFields={{}} />}
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-800 mb-1.5">خلاصه اثر</label>
-                <textarea
-                  {...methods.register('synopsis')}
-                  rows={4}
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 bg-gray-50 focus:bg-white"
-                  placeholder="خلاصه‌ای از داستان..."
-                />
-              </div>
-
-              {/* Submit */}
-              <div className="flex gap-3 pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
-                >
-                  انصراف
-                </button>
-                <button
-                  type="submit"
-                  disabled={!hasChanges}
-                  className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                >
-                  {hasChanges ? `پیش‌نمایش ${calculateChanges(currentFormData).length} تغییر` : 'بدون تغییر'}
-                </button>
-              </div>
-            </form>
-          </FormProvider>
-        )}
-      </div>
-    </div>
+              <button
+                type="submit"
+                disabled={!hasChanges}
+                className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              >
+                {hasChanges ? `پیش‌نمایش ${calculateChanges(currentFormData).length} تغییر` : 'بدون تغییر'}
+              </button>
+            </div>
+          </form>
+        </FormProvider>
+      )}
+    </Modal>
   );
 }

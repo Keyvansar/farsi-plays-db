@@ -1,67 +1,123 @@
-// ===== IMPORTS & DEPENDENCIES =====
-import React, { useState, useEffect } from 'react';
-import { useForm, FormProvider } from 'react-hook-form';
+import React, { useState, useEffect, useRef } from 'react';
+import { useForm, FormProvider, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { supabase } from '../lib/supabase';
-import { normalizeFarsi, parseNamesToArray } from '../utils/textUtils';
+import { normalizeFarsi } from '../utils/textUtils';
 import { editionSchema } from '../schemas/editionSchema';
-
-// Child Components
-import DuplicateWarning from './submit/DuplicateWarning';
+import { useCastTotal } from '../hooks/useCastTotal';
 import RequiredFields from './submit/RequiredFields';
 import OptionalFields from './submit/OptionalFields';
+import DuplicateWarning from './submit/DuplicateWarning';
 
+const DRAFT_KEY = 'submission_draft';
 
-// ===== DEFAULT VALUES (Empty State) =====
-const emptyDefaults = {
-  title_fa: '', playwright_fa: '', source_language: 'fa', translator_fa: '',
-  publication_status: 'published', publisher: '', is_in_collection: false,
-  collection_title: '', original_title: '', publication_year_solar: '',
-  publication_year_gregorian: '', original_year: '', isbn: '', page_count: '',
-  cast_men: '', cast_women: '', cast_nonspecific: '', cast_total: '',
-  cast_unknown: false, synopsis: '', submitter_name: '', submitter_email: '',
-  external_references: [], tags: [], custom_tag: '',
-};
+// Fields that can be suggested for edit when completing a duplicate (non-moderators)
+const SUGGESTABLE_FIELDS = [
+  'title_fa', 'translator_fa', 'publication_status', 'publisher', 'collection_title',
+  'publication_year_solar', 'publication_year_gregorian', 'original_year', 'isbn',
+  'page_count', 'cast_men', 'cast_women', 'cast_nonspecific', 'cast_total', 'synopsis',
+];
 
-// ===== MAIN COMPONENT =====
 export default function SubmitView({ user }) {
-  const isAuthenticated = !!user;
-  const savedData = JSON.parse(localStorage.getItem('farsiPlayDraft')) || {};
+  const methods = useForm({
+    resolver: zodResolver(editionSchema),
+    defaultValues: {
+      title_fa: '',
+      playwright_fa: '',
+      source_language: 'fa',
+      translator_fa: '',
+      publication_status: 'published',
+      publisher: '',
+      is_in_collection: false,
+      collection_title: '',
+      original_title: '',
+      publication_year_solar: '',
+      publication_year_gregorian: '',
+      original_year: '',
+      isbn: '',
+      page_count: '',
+      cast_men: '',
+      cast_women: '',
+      cast_nonspecific: '',
+      cast_total: '',
+      cast_unknown: false,
+      synopsis: '',
+      tags: [],
+      external_references: [{ url: '', ref_type: 'other' }],
+      submitter_name: '',
+      submitter_email: '',
+    },
+  });
 
-  // ===== FORM SETUP =====
-const methods = useForm({
-  resolver: zodResolver(editionSchema),
-  defaultValues: { /* ... keep your existing defaults ... */ }
-});
+  const { handleSubmit, watch, reset, setValue, getValues, control } = methods;
 
-  const { handleSubmit, watch, reset, setValue, formState: { errors, isSubmitting } } = methods;
+  // Shared cast auto-calculation hook
+  useCastTotal(control, setValue);
 
   // ===== UI STATE =====
   const [showOptional, setShowOptional] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [castWarning, setCastWarning] = useState('');
-  const [isCompletingDuplicate, setIsCompletingDuplicate] = useState(false);  // ← ADD
-  const [lockedFields, setLockedFields] = useState({});                      // ← ADD
 
-  // ===== DUPLICATE STATES =====
+  // ===== DUPLICATE DETECTION STATE =====
   const [duplicateMatches, setDuplicateMatches] = useState([]);
-  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   const [selectedMergeTarget, setSelectedMergeTarget] = useState(null);
+  const [isCompletingDuplicate, setIsCompletingDuplicate] = useState(false);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+  const [lockedFields, setLockedFields] = useState({});
 
-  // ===== WATCHED FIELDS =====
+  // ===== RATE LIMIT =====
+  const [lastSubmitTime, setLastSubmitTime] = useState(0);
+  const draftTimer = useRef(null);
+
   const watchedTitle = watch('title_fa');
-  const watchedCastMen = watch('cast_men');
-  const watchedCastWomen = watch('cast_women');
-  const watchedCastNonspecific = watch('cast_nonspecific');
-  const watchedCastUnknown = watch('cast_unknown');
 
-  // ===== LOCALSTORAGE PERSISTENCE =====
+  // Cast mismatch warning
+  const castMen = useWatch({ control, name: 'cast_men' });
+  const castWomen = useWatch({ control, name: 'cast_women' });
+  const castNonspecific = useWatch({ control, name: 'cast_nonspecific' });
+  const castTotal = useWatch({ control, name: 'cast_total' });
+  const castUnknown = useWatch({ control, name: 'cast_unknown' });
+
   useEffect(() => {
-    const subscription = watch((value) => {
-      localStorage.setItem('farsiPlayDraft', JSON.stringify(value));
+    if (castUnknown) { setCastWarning(''); return; }
+    const sum = (parseInt(castMen) || 0) + (parseInt(castWomen) || 0) + (parseInt(castNonspecific) || 0);
+    const total = parseInt(castTotal) || 0;
+    if (castTotal && sum > 0 && total !== sum) {
+      setCastWarning(`مجموع بازیگران (${total}) با جمع جزئیات (${sum}) مطابقت ندارد.`);
+    } else {
+      setCastWarning('');
+    }
+  }, [castMen, castWomen, castNonspecific, castTotal, castUnknown]);
+
+  // ===== DRAFT PERSISTENCE =====
+  useEffect(() => {
+    const draft = localStorage.getItem(DRAFT_KEY);
+    if (draft) {
+      try {
+        const parsed = JSON.parse(draft);
+        reset({ ...getValues(), ...parsed });
+        setMessage({ type: 'info', text: '📄 پیش‌نویس قبلی بازیابی شد.' });
+      } catch (e) {
+        localStorage.removeItem(DRAFT_KEY);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const subscription = watch((value, { name }) => {
+      if (!name) return;
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+      draftTimer.current = setTimeout(() => {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(value));
+      }, 800);
     });
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+    };
   }, [watch]);
 
   // ===== DUPLICATE DETECTION =====
@@ -70,13 +126,15 @@ const methods = useForm({
     if (normalizedTitle.length < 3) {
       setDuplicateMatches([]);
       setSelectedMergeTarget(null);
+      setIsCompletingDuplicate(false);
+      setLockedFields({});
       return;
     }
 
     const checkDuplicate = async () => {
       setIsCheckingDuplicate(true);
       try {
-         const { data, error } = await supabase
+        const { data, error } = await supabase
           .from('farsi_editions')
           .select(`
             id,
@@ -104,14 +162,11 @@ const methods = useForm({
           .limit(3);
 
         if (error) throw error;
-  console.log('🔍 Duplicate matches:', data);
-        console.log('🏷️ First match tags:', data?.[0]?.edition_tags);
-        console.log('🔗 First match refs:', data?.[0]?.external_references);
+
         setDuplicateMatches(data || []);
-        setSelectedMergeTarget((prev) => {
-          if (prev && !(data || []).find(d => d.id === prev.id)) return null;
-          return prev;
-        });
+        setSelectedMergeTarget(prev =>
+          prev && (data || []).find(d => d.id === prev.id) ? prev : null
+        );
       } catch (err) {
         console.error('Error checking for duplicates:', err);
       } finally {
@@ -119,44 +174,26 @@ const methods = useForm({
       }
     };
 
-    const delayDebounceFn = setTimeout(() => checkDuplicate(), 800);
+    const delayDebounceFn = setTimeout(checkDuplicate, 800);
     return () => clearTimeout(delayDebounceFn);
   }, [watchedTitle]);
 
-  // ===== CAST WARNING LOGIC =====
-  useEffect(() => {
-    if (watchedCastUnknown) { setCastWarning(''); return; }
-    const men = parseInt(watchedCastMen) || 0;
-    const women = parseInt(watchedCastWomen) || 0;
-    const nonspecific = parseInt(watchedCastNonspecific) || 0;
-    const total = men + women + nonspecific;
-    setValue('cast_total', total > 0 ? total.toString() : '');
-
-    if (total > 0) {
-      if (men > 0 && women === 0 && nonspecific === 0) setCastWarning('⚠️ فقط بازیگر مرد ثبت شده است.');
-      else if (women > 0 && men === 0 && nonspecific === 0) setCastWarning('⚠️ فقط بازیگر زن ثبت شده است.');
-      else setCastWarning('');
-    } else {
-      setCastWarning('');
-    }
-  }, [watchedCastMen, watchedCastWomen, watchedCastNonspecific, watchedCastUnknown, setValue]);
- 
- // ===== DUPLICATE COMPLETION HANDLER =====
-    const handleToggleComplete = (checked) => {
+  // ===== MERGE TOGGLE (pre-fill + lock) =====
+  const handleToggleComplete = (checked) => {
     setIsCompletingDuplicate(checked);
 
     if (checked && selectedMergeTarget) {
       const ed = selectedMergeTarget;
       const work = ed.works || {};
 
-      // ========== STEP 1: EXTRACT DATA FIRST ==========
+      // Extract tags and links FIRST
       const editionTags = ed.edition_tags?.map(et => et.taxonomy?.label_fa).filter(Boolean) || [];
       const editionRefs = ed.external_references?.filter(r => r.url).map(r => ({
         url: r.url,
         ref_type: r.ref_type || 'other',
       })) || [];
 
-      // ========== STEP 2: BUILD LOCKS (uses editionTags/editionRefs) ==========
+      // Build locked fields map
       const locks = {
         title_fa: !!ed.title_fa,
         playwright_fa: !!(work.playwright_fa && work.playwright_fa.length > 0),
@@ -182,7 +219,7 @@ const methods = useForm({
       };
       setLockedFields(locks);
 
-      // ========== STEP 3: RESET FORM (uses editionTags/editionRefs) ==========
+      // Use reset() to properly initialize useFieldArray fields (tags, external_references)
       reset({
         title_fa: ed.title_fa || '',
         playwright_fa: work.playwright_fa?.join(', ') || '',
@@ -209,277 +246,434 @@ const methods = useForm({
         submitter_name: '',
         submitter_email: '',
       });
-           // ========== STEP 4: UI STATE ==========
-      setShowOptional(true);
 
+      setShowOptional(true);
     } else {
       setLockedFields({});
     }
   };
 
-  // ===== FORM SUBMISSION =====
-  const onSubmit = async (data) => {
-    if (!supabase) { setMessage({ type: 'error', text: 'پایگاه داده متصل نیست.' }); return; }
-    setMessage({ type: '', text: '' });
+  // ===== HELPERS =====
+  const getUserRole = async () => {
+    if (!user) return null;
+    const { data } = await supabase.rpc('get_user_role');
+    return data;
+  };
 
-    try {
-      // 1. Build the payload
-      const editionPayload = {
-        title_fa: data.title_fa,
-        playwright_fa: parseNamesToArray(data.playwright_fa),
-        source_language: data.source_language,
-        translator_fa: data.translator_fa ? parseNamesToArray(data.translator_fa) : [],
-        original_title: data.original_title || null,
-        publication_status: data.publication_status,
-        publisher: data.publisher || null,
-        is_in_collection: data.is_in_collection || false,
-        collection_title: data.collection_title || null,
-        publication_year_solar: data.publication_year_solar ? parseInt(data.publication_year_solar) : null,
-        publication_year_gregorian: data.publication_year_gregorian ? parseInt(data.publication_year_gregorian) : null,
-        original_year: data.original_year ? parseInt(data.original_year) : null,
-        isbn: data.isbn || null,
-        page_count: data.page_count ? parseInt(data.page_count) : null,
-        cast_men: data.cast_unknown ? null : (data.cast_men ? parseInt(data.cast_men) : null),
-        cast_women: data.cast_unknown ? null : (data.cast_women ? parseInt(data.cast_women) : null),
-        cast_nonspecific: data.cast_unknown ? null : (data.cast_nonspecific ? parseInt(data.cast_nonspecific) : null),
-        cast_total: data.cast_unknown ? null : (parseInt(data.cast_men) || 0) + (parseInt(data.cast_women) || 0) + (parseInt(data.cast_nonspecific) || 0),
-        synopsis: data.synopsis || null,
-        submitter_name: data.submitter_name || null,
-        submitter_email: data.submitter_email || null,
-        external_references: data.external_references?.filter(r => r.url) || [],
-        tags: data.tags || [],
-      };
+  const buildPayload = (formData) => ({
+    title_fa: (formData.title_fa || '').trim(),
+    playwright_fa: (formData.playwright_fa || '').split(/[,،]/).map(s => s.trim()).filter(Boolean),
+    source_language: formData.source_language || 'fa',
+    translator_fa: formData.source_language !== 'fa'
+      ? (formData.translator_fa || '').split(/[,،]/).map(s => s.trim()).filter(Boolean)
+      : [],
+    publication_status: formData.publication_status || 'published',
+    publisher: formData.publisher || null,
+    is_in_collection: !!formData.is_in_collection,
+    collection_title: formData.is_in_collection ? (formData.collection_title || null) : null,
+    original_title: formData.original_title || null,
+    publication_year_solar: formData.publication_year_solar ? parseInt(formData.publication_year_solar) : null,
+    publication_year_gregorian: formData.publication_year_gregorian ? parseInt(formData.publication_year_gregorian) : null,
+    original_year: formData.original_year ? parseInt(formData.original_year) : null,
+    isbn: formData.isbn || null,
+    page_count: formData.page_count ? parseInt(formData.page_count) : null,
+    cast_men: formData.cast_men ? parseInt(formData.cast_men) : null,
+    cast_women: formData.cast_women ? parseInt(formData.cast_women) : null,
+    cast_nonspecific: formData.cast_nonspecific ? parseInt(formData.cast_nonspecific) : null,
+    cast_total: formData.cast_unknown ? null : (formData.cast_total ? parseInt(formData.cast_total) : null),
+    synopsis: formData.synopsis || null,
+    tags: (formData.tags || []).filter(Boolean),
+    external_references: (formData.external_references || []).filter(r => r && r.url),
+    submitter_name: formData.submitter_name || null,
+    submitter_email: formData.submitter_email || null,
+  });
 
-      // 2. Route based on Authentication
-      if (isAuthenticated) {
-        
-        // --- SCENARIO A: MERGE (Update Existing) ---
-        if (selectedMergeTarget) {
-          if (editionPayload.original_title && selectedMergeTarget.works) {
-            await supabase.from('works').update({
-              original_title: editionPayload.original_title,
-              source_language: editionPayload.source_language
-            }).eq('id', selectedMergeTarget.works.id).is('original_title', null);
-          }
-
-          // Update scalar fields in farsi_editions
-          await supabase.from('farsi_editions').update({
-            synopsis: editionPayload.synopsis || undefined,
-            page_count: editionPayload.page_count || undefined,
-            publisher: editionPayload.publisher || undefined,
-            publication_year_solar: editionPayload.publication_year_solar || undefined,
-            publication_year_gregorian: editionPayload.publication_year_gregorian || undefined,
-            isbn: editionPayload.isbn || undefined,
-          }).eq('id', selectedMergeTarget.id);
-
-          // Append new external references
-          if (editionPayload.external_references && editionPayload.external_references.length > 0) {
-            const refsToInsert = editionPayload.external_references.map(ref => ({
-              farsi_edition_id: selectedMergeTarget.id,
-              url: ref.url,
-              ref_type: ref.ref_type || 'other'
-            }));
-            await supabase.from('external_references').insert(refsToInsert);
-          }
-
-          // Append new tags
-          if (editionPayload.tags && editionPayload.tags.length > 0) {
-            for (const tagLabel of editionPayload.tags) {
-              let { data: taxData } = await supabase.from('taxonomy').select('id').eq('label_fa', tagLabel).maybeSingle();
-              if (!taxData) {
-                const { data: newTax } = await supabase.from('taxonomy').insert({ label_fa: tagLabel, category: 'user_tag', is_approved: false }).select('id').single();
-                taxData = newTax;
-              }
-              if (taxData) {
-                await supabase.from('edition_tags').upsert({ farsi_edition_id: selectedMergeTarget.id, taxonomy_id: taxData.id });
-              }
-            }
-          }
-          setMessage({ type: 'success', text: '✅ اطلاعات تکمیلی با موفقیت به رکورد موجود اضافه شد.' });
-        
-        // --- SCENARIO B: NEW RECORD (Direct Insert) ---
-        } else {
-          const { data: wData, error: wErr } = await supabase.from('works').insert({
-            original_title: editionPayload.original_title,
-            source_language: editionPayload.source_language,
-            playwright_fa: editionPayload.playwright_fa,
-          }).select('id').single();
-          if (wErr) throw wErr;
-
-          const { data: eData, error: eErr } = await supabase.from('farsi_editions').insert({
-            work_id: wData.id,
-            title_fa: editionPayload.title_fa,
-            translator_fa: editionPayload.translator_fa,
-            publication_status: editionPayload.publication_status,
-            publisher: editionPayload.publisher,
-            is_in_collection: editionPayload.is_in_collection,
-            collection_title: editionPayload.collection_title,
-            page_count: editionPayload.page_count,
-            synopsis: editionPayload.synopsis,
-            publication_year_solar: editionPayload.publication_year_solar,
-            publication_year_gregorian: editionPayload.publication_year_gregorian,
-            original_year: editionPayload.original_year,
-            isbn: editionPayload.isbn,
-            cast_men: editionPayload.cast_men,
-            cast_women: editionPayload.cast_women,
-            cast_nonspecific: editionPayload.cast_nonspecific,
-            cast_total: editionPayload.cast_total,
-            submitter_name: editionPayload.submitter_name,
-            submitter_email: editionPayload.submitter_email,
-            is_verified: true,
-          }).select('id').single();
-          if (eErr) throw eErr;
-
-          const newEditionId = eData.id;
-
-          // Insert external references
-          if (editionPayload.external_references && editionPayload.external_references.length > 0) {
-            const refsToInsert = editionPayload.external_references.map(ref => ({
-              farsi_edition_id: newEditionId,
-              url: ref.url,
-              ref_type: ref.ref_type || 'other'
-            }));
-            await supabase.from('external_references').insert(refsToInsert);
-          }
-
-          // Insert tags
-          if (editionPayload.tags && editionPayload.tags.length > 0) {
-            for (const tagLabel of editionPayload.tags) {
-              let { data: taxData } = await supabase.from('taxonomy').select('id').eq('label_fa', tagLabel).maybeSingle();
-              if (!taxData) {
-                const { data: newTax } = await supabase.from('taxonomy').insert({ label_fa: tagLabel, category: 'user_tag', is_approved: false }).select('id').single();
-                taxData = newTax;
-              }
-              if (taxData) {
-                await supabase.from('edition_tags').insert({ farsi_edition_id: newEditionId, taxonomy_id: taxData.id });
-              }
-            }
-          }
-
-          setMessage({ type: 'success', text: '✅ اثر جدید با موفقیت ثبت شد.' });
-        }
-      
-      // --- SCENARIO C: GUEST (Queue for Moderation) ---
-      } else {
-        const { error: pErr } = await supabase.from('pending_submissions').insert({ payload: editionPayload });
-        if (pErr) throw pErr;
-        setMessage({ type: 'success', text: selectedMergeTarget ? '✅ درخواست تکمیل اطلاعات دریافت شد.' : '✅ اثر دریافت شد و پس از بازبینی در آرشیو قرار خواهد گرفت.' });
+  const attachTagsAndLinks = async (editionId, p) => {
+    for (const label of p.tags) {
+      let { data: tax } = await supabase.from('taxonomy').select('id').eq('label_fa', label).maybeSingle();
+      if (!tax) {
+        const { data: newTax } = await supabase
+          .from('taxonomy')
+          .insert({ label_fa: label, category: 'user_tag', is_approved: false })
+          .select('id')
+          .single();
+        tax = newTax;
       }
+      if (tax) {
+        await supabase.from('edition_tags').upsert({
+          farsi_edition_id: editionId,
+          taxonomy_id: tax.id,
+        });
+      }
+    }
 
-      // 3. Success Cleanup
-      localStorage.removeItem('farsiPlayDraft');
-      reset(emptyDefaults);
-      setSelectedMergeTarget(null);
-      setShowOptional(false);
-      setIsCompletingDuplicate(false);   // ← ADD
-      setLockedFields({});               // ← ADD
-
-    } catch (err) {
-      console.error('Submission error:', err);
-      let errorMessage = 'خطایی در ثبت اطلاعات رخ داد.';
-      if (err.message?.includes('duplicate')) errorMessage = 'این اثر قبلاً ثبت شده است.';
-      else if (err.message?.includes('validation') || err.message?.includes('constraint')) errorMessage = 'اطلاعات وارد شده نامعتبر است.';
-      else if (err.message?.includes('network') || err.message?.includes('fetch')) errorMessage = 'ارتباط با سرور قطع شد.';
-      else if (err.code === 'PGRST301' || err.message?.includes('JWT')) errorMessage = 'لطفاً ابتدا وارد حساب کاربری خود شوید.';
-      setMessage({ type: 'error', text: errorMessage });
+    if (p.external_references.length > 0) {
+      await supabase.from('external_references').insert(
+        p.external_references.map(r => ({
+          farsi_edition_id: editionId,
+          url: r.url,
+          ref_type: r.ref_type || 'other',
+        }))
+      );
     }
   };
 
-  // ===== RENDER =====
+  // Direct insert (moderators/admins, new record)
+  const insertDirectly = async (p) => {
+    const { data: work, error: workErr } = await supabase
+      .from('works')
+      .insert({
+        original_title: p.original_title,
+        source_language: p.source_language,
+        playwright_fa: p.playwright_fa,
+      })
+      .select('id')
+      .single();
+    if (workErr) throw workErr;
+
+    const { data: edition, error: edErr } = await supabase
+      .from('farsi_editions')
+      .insert({
+        work_id: work.id,
+        title_fa: p.title_fa,
+        translator_fa: p.translator_fa,
+        publication_status: p.publication_status,
+        publisher: p.publisher,
+        is_in_collection: p.is_in_collection,
+        collection_title: p.collection_title,
+        publication_year_solar: p.publication_year_solar,
+        publication_year_gregorian: p.publication_year_gregorian,
+        original_year: p.original_year,
+        isbn: p.isbn,
+        page_count: p.page_count,
+        cast_men: p.cast_men,
+        cast_women: p.cast_women,
+        cast_nonspecific: p.cast_nonspecific,
+        cast_total: p.cast_total,
+        synopsis: p.synopsis,
+        is_verified: true,
+      })
+      .select('id')
+      .single();
+    if (edErr) throw edErr;
+
+    await attachTagsAndLinks(edition.id, p);
+    return edition.id;
+  };
+
+  // Direct update of existing edition (moderators completing a duplicate)
+  const updateExisting = async (p) => {
+    const ed = selectedMergeTarget;
+    const workId = ed.works?.id;
+
+    if (workId) {
+      const { error: workErr } = await supabase
+        .from('works')
+        .update({
+          playwright_fa: p.playwright_fa,
+          original_title: p.original_title,
+          source_language: p.source_language,
+        })
+        .eq('id', workId);
+      if (workErr) throw workErr;
+    }
+
+    const { error: edErr } = await supabase
+      .from('farsi_editions')
+      .update({
+        title_fa: p.title_fa,
+        translator_fa: p.translator_fa,
+        publication_status: p.publication_status,
+        publisher: p.publisher,
+        is_in_collection: p.is_in_collection,
+        collection_title: p.collection_title,
+        publication_year_solar: p.publication_year_solar,
+        publication_year_gregorian: p.publication_year_gregorian,
+        original_year: p.original_year,
+        isbn: p.isbn,
+        page_count: p.page_count,
+        cast_men: p.cast_men,
+        cast_women: p.cast_women,
+        cast_nonspecific: p.cast_nonspecific,
+        cast_total: p.cast_total,
+        synopsis: p.synopsis,
+      })
+      .eq('id', ed.id);
+    if (edErr) throw edErr;
+
+    // Add only NEW links (avoid duplicating existing ones)
+    const existingUrls = (ed.external_references || []).map(r => r.url);
+    const newRefs = p.external_references.filter(r => !existingUrls.includes(r.url));
+    if (newRefs.length > 0) {
+      await supabase.from('external_references').insert(
+        newRefs.map(r => ({ farsi_edition_id: ed.id, url: r.url, ref_type: r.ref_type || 'other' }))
+      );
+    }
+
+    // Add tags (upsert handles existing)
+    for (const label of p.tags) {
+      let { data: tax } = await supabase.from('taxonomy').select('id').eq('label_fa', label).maybeSingle();
+      if (!tax) {
+        const { data: newTax } = await supabase
+          .from('taxonomy')
+          .insert({ label_fa: label, category: 'user_tag', is_approved: false })
+          .select('id')
+          .single();
+        tax = newTax;
+      }
+      if (tax) {
+        await supabase.from('edition_tags').upsert({
+          farsi_edition_id: ed.id,
+          taxonomy_id: tax.id,
+        });
+      }
+    }
+
+    return ed.id;
+  };
+
+  // Queue edit suggestions for unlocked (previously empty) fields (non-moderators completing a duplicate)
+  const queueCompletionSuggestions = async (p) => {
+    const ed = selectedMergeTarget;
+
+    const getCurrentValue = (field) => {
+      const work = ed.works || {};
+      switch (field) {
+        case 'title_fa': return ed.title_fa || '';
+        case 'translator_fa': return Array.isArray(ed.translator_fa) ? ed.translator_fa.join('، ') : (ed.translator_fa || '');
+        case 'publication_status': return ed.publication_status || '';
+        case 'publisher': return ed.publisher || '';
+        case 'collection_title': return ed.collection_title || '';
+        case 'publication_year_solar': return ed.publication_year_solar?.toString() || '';
+        case 'publication_year_gregorian': return ed.publication_year_gregorian?.toString() || '';
+        case 'original_year': return ed.original_year?.toString() || '';
+        case 'isbn': return ed.isbn || '';
+        case 'page_count': return ed.page_count?.toString() || '';
+        case 'cast_men': return ed.cast_men?.toString() || '';
+        case 'cast_women': return ed.cast_women?.toString() || '';
+        case 'cast_nonspecific': return ed.cast_nonspecific?.toString() || '';
+        case 'cast_total': return ed.cast_total?.toString() || '';
+        case 'synopsis': return ed.synopsis || '';
+        default: return '';
+      }
+    };
+
+    const getNewValue = (field) => {
+      switch (field) {
+        case 'title_fa': return p.title_fa;
+        case 'translator_fa': return p.translator_fa.join('، ');
+        case 'publication_status': return p.publication_status;
+        case 'publisher': return p.publisher || '';
+        case 'collection_title': return p.collection_title || '';
+        case 'publication_year_solar': return p.publication_year_solar?.toString() || '';
+        case 'publication_year_gregorian': return p.publication_year_gregorian?.toString() || '';
+        case 'original_year': return p.original_year?.toString() || '';
+        case 'isbn': return p.isbn || '';
+        case 'page_count': return p.page_count?.toString() || '';
+        case 'cast_men': return p.cast_men?.toString() || '';
+        case 'cast_women': return p.cast_women?.toString() || '';
+        case 'cast_nonspecific': return p.cast_nonspecific?.toString() || '';
+        case 'cast_total': return p.cast_total?.toString() || '';
+        case 'synopsis': return p.synopsis || '';
+        default: return '';
+      }
+    };
+
+    for (const field of SUGGESTABLE_FIELDS) {
+      if (lockedFields[field]) continue; // field already had a value
+      const newValue = getNewValue(field);
+      if (!newValue) continue;
+
+      await supabase.from('pending_submissions').insert({
+        action_type: 'edit_suggestion',
+        edition_id: ed.id,
+        field_name: field,
+        submitted_by: user?.id || null,
+        payload: {
+          title_fa: ed.title_fa,
+          field_label: field,
+          current_value: String(getCurrentValue(field)),
+          new_value: String(newValue),
+          note: 'تکمیل اثر از فرم ثبت',
+        },
+      });
+    }
+  };
+
+  // ===== SUBMIT =====
+  const onSubmit = async (formData) => {
+    // Client-side cooldown (10s)
+    const now = Date.now();
+    if (now - lastSubmitTime < 10000) {
+      setMessage({ type: 'error', text: 'لطفاً چند ثانیه صبر کنید و دوباره تلاش کنید.' });
+      return;
+    }
+    setLastSubmitTime(now);
+
+    setSubmitting(true);
+    setMessage({ type: '', text: '' });
+
+    try {
+      const p = buildPayload(formData);
+      const role = await getUserRole();
+      const canModerate = role === 'moderator' || role === 'admin';
+
+      if (isCompletingDuplicate && selectedMergeTarget) {
+        if (canModerate) {
+          await updateExisting(p);
+          setMessage({ type: 'success', text: '✅ اثر موجود با موفقیت تکمیل شد.' });
+        } else {
+          await queueCompletionSuggestions(p);
+          setMessage({ type: 'success', text: '✅ پیشنهادهای تکمیل اثر برای بررسی ثبت شد.' });
+        }
+      } else if (canModerate) {
+        await insertDirectly(p);
+        setMessage({ type: 'success', text: '✅ اثر با موفقیت ثبت و تایید شد.' });
+      } else {
+        const { error: qErr } = await supabase.from('pending_submissions').insert({
+          action_type: 'new_submission',
+          submitted_by: user?.id || null,
+          payload: p,
+        });
+        if (qErr) throw qErr;
+        setMessage({ type: 'success', text: '✅ اثر شما برای بررسی ثبت شد. پس از تایید ویراستاران منتشر خواهد شد.' });
+      }
+
+      localStorage.removeItem(DRAFT_KEY);
+      setSelectedMergeTarget(null);
+      setDuplicateMatches([]);
+      setIsCompletingDuplicate(false);
+      setLockedFields({});
+
+      setTimeout(() => {
+        reset();
+        setShowOptional(false);
+      }, 1500);
+
+    } catch (err) {
+      console.error('Submission error:', err);
+      setMessage({ type: 'error', text: `خطا در ثبت اثر: ${err.message}` });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 md:p-8" dir="rtl">
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">✍️ ثبت اثر جدید</h2>
-      {/* Validation Errors Summary */}
-      {Object.keys(errors).length > 0 && (
-        <div className="p-4 mb-4 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200">
-          <p className="font-bold mb-2">⚠️ لطفاً خطاهای زیر را برطرف کنید:</p>
-          <ul className="list-disc list-inside space-y-1">
-            {errors.title_fa && <li>عنوان: {errors.title_fa.message}</li>}
-            {errors.playwright_fa && <li>نویسنده: {errors.playwright_fa.message}</li>}
-            {errors.translator_fa && <li>مترجم: {errors.translator_fa.message}</li>}
-            {errors.submitter_email && <li>ایمیل: {errors.submitter_email.message}</li>}
-            {errors.external_references && (
-              <li>لینک‌های خارجی: یک یا چند لینک نامعتبر است</li>
+    <div className="max-w-3xl mx-auto" dir="rtl">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">✍️ ثبت اثر جدید</h2>
+        <p className="text-sm text-gray-500 mb-6">
+          {user
+            ? 'اطلاعات اثر را وارد کنید. فیلدهای ستاره‌دار الزامی هستند.'
+            : 'شما به عنوان مهمان ثبت می‌کنید؛ اثر پس از بررسی ویراستاران منتشر خواهد شد.'}
+        </p>
+
+        {/* Messages */}
+        {message.text && (
+          <div className={`p-3 mb-4 rounded-lg text-sm border ${
+            message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
+            message.type === 'error' ? 'bg-red-50 text-red-800 border-red-200' :
+            'bg-blue-50 text-blue-800 border-blue-200'
+          }`}>
+            {message.text}
+          </div>
+        )}
+
+        {/* Duplicate Warning */}
+        {(isCheckingDuplicate || duplicateMatches.length > 0) && (
+          <DuplicateWarning
+            matches={duplicateMatches}
+            selectedMatch={selectedMergeTarget}
+            onSelect={setSelectedMergeTarget}
+            isChecking={isCheckingDuplicate}
+            isCompleting={isCompletingDuplicate}
+            onChange={handleToggleComplete}
+          />
+        )}
+
+        <FormProvider {...methods}>
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            <RequiredFields isCheckingDuplicate={isCheckingDuplicate} lockedFields={lockedFields} />
+
+            <button
+              type="button"
+              onClick={() => setShowOptional(!showOptional)}
+              className="w-full py-2 px-4 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 transition-all"
+            >
+              {showOptional ? '▲ بستن فیلدهای اختیاری' : '▼ فیلدهای اختیاری'}
+            </button>
+
+            {showOptional && <OptionalFields castWarning={castWarning} lockedFields={lockedFields} />}
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-800 mb-1.5">خلاصه اثر</label>
+              <textarea
+                {...methods.register('synopsis')}
+                rows={4}
+                disabled={!!lockedFields.synopsis}
+                className={`w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 bg-gray-50 focus:bg-white ${
+                  lockedFields.synopsis ? 'bg-gray-100 text-gray-500' : ''
+                }`}
+                placeholder="خلاصه‌ای از داستان..."
+              />
+            </div>
+
+            {/* Guest attribution */}
+            {!user && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-800 mb-1.5">نام شما (اختیاری)</label>
+                  <input
+                    type="text"
+                    {...methods.register('submitter_name')}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0"
+                    placeholder="نام و نام خانوادگی"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-800 mb-1.5">ایمیل شما (اختیاری)</label>
+                  <input
+                    type="email"
+                    {...methods.register('submitter_email')}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0"
+                    placeholder="example@email.com"
+                    dir="ltr"
+                  />
+                </div>
+              </div>
             )}
-          </ul>
-        </div>
-      )}
-      {message.text && (
-        <div className={`p-4 mb-6 rounded-lg text-sm border ${message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
-          {message.text}
-        </div>
-      )}
 
-      <DuplicateWarning
-  duplicateMatches={duplicateMatches}
-  selectedMergeTarget={selectedMergeTarget}
-  onSelectTarget={(match) => {
-    setSelectedMergeTarget(match);
-    setIsCompletingDuplicate(false);   // ← Reset when selecting a different duplicate
-    setLockedFields({});               // ← Clear locks
-  }}
-  isCompleting={isCompletingDuplicate}
-  onToggleComplete={handleToggleComplete}
-/>
-
-      <FormProvider {...methods}>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <RequiredFields isCheckingDuplicate={isCheckingDuplicate} lockedFields={lockedFields} />
-
-          <button
-            type="button"
-            onClick={() => setShowOptional(!showOptional)}
-            className="w-full py-3 px-4 bg-gray-50 hover:bg-gray-100 border-2 border-dashed border-gray-300 rounded-xl text-sm font-medium text-gray-600 transition-all flex items-center justify-center gap-2"
-          >
-            {showOptional ? '▲ بستن فیلدهای اختیاری' : '▼ نمایش فیلدهای اختیاری (ناشر، سال، بازیگران و...)'}
-          </button>
-
-          {showOptional && <OptionalFields castWarning={castWarning} lockedFields={lockedFields} />}
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-800 mb-1.5">خلاصه اثر</label>
-            <textarea
-              {...methods.register('synopsis')}
-              rows={4}
-              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 bg-gray-50 focus:bg-white"
-              placeholder="خلاصه‌ای از داستان و محتوای نمایشنامه..."
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-100">
-            <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-1.5">نام ثبت‌کننده</label>
-              <input
-                type="text"
-                {...methods.register('submitter_name')}
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 bg-gray-50 focus:bg-white"
-                placeholder="نام شما"
-              />
+            {/* Submit */}
+            <div className="flex gap-3 pt-4 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.removeItem(DRAFT_KEY);
+                  reset();
+                  setLockedFields({});
+                  setIsCompletingDuplicate(false);
+                  setSelectedMergeTarget(null);
+                  setMessage({ type: 'info', text: 'فرم پاک شد.' });
+                }}
+                className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+              >
+                🧹 پاک کردن فرم
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || isCheckingDuplicate}
+                className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              >
+                {submitting
+                  ? '⏳ در حال ثبت...'
+                  : isCompletingDuplicate
+                    ? '✅ تکمیل اثر موجود'
+                    : '📤 ثبت اثر'}
+              </button>
             </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-1.5">ایمیل ثبت‌کننده</label>
-              <input
-                type="email"
-                {...methods.register('submitter_email')}
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 bg-gray-50 focus:bg-white"
-                placeholder="example@email.com"
-                dir="ltr"
-              />
-              {errors.submitter_email && (
-                <p className="mt-1 text-sm text-red-600">{errors.submitter_email.message}</p>
-              )}
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all disabled:opacity-50 shadow-md shadow-indigo-200 text-lg"
-          >
-            {isSubmitting ? '⏳ در حال ثبت...' : selectedMergeTarget ? '✅ تکمیل اطلاعات اثر' : '✅ ثبت اثر در آرشیو'}
-          </button>
-        </form>
-      </FormProvider>
+          </form>
+        </FormProvider>
+      </div>
     </div>
   );
 }
