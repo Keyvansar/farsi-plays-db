@@ -1,34 +1,35 @@
+import React from 'react';
 import PlayCard from './PlayCard';
+import SearchSkeleton from './SearchSkeleton';
 
 export default function SearchResults({ results, loading, onCardClick }) {
+  // Skeleton loaders while fetching
   if (loading) {
+    return <SearchSkeleton count={5} />;
+  }
+
+  // Empty state
+  if (!results || results.length === 0) {
     return (
-      <div className="space-y-4">
-        {[1, 2, 3].map(i => (
-          <div key={i} className="bg-white border border-gray-200 rounded-xl p-5 animate-pulse">
-            <div className="h-5 bg-gray-200 rounded w-1/3 mb-3"></div>
-            <div className="h-4 bg-gray-100 rounded w-2/3 mb-2"></div>
-            <div className="h-3 bg-gray-100 rounded w-1/2"></div>
-          </div>
-        ))}
+      <div className="bg-white rounded-xl border border-gray-100 p-12 text-center">
+        <div className="text-5xl mb-4">🔍</div>
+        <h3 className="text-lg font-bold text-gray-900 mb-2">نتیجه‌ای یافت نشد</h3>
+        <p className="text-sm text-gray-500">
+          فیلترها را تغییر دهید یا عبارت جستجوی دیگری امتحان کنید.
+        </p>
       </div>
     );
   }
 
-  if (results.length === 0) {
-    return (
-      <div className="text-center py-16 bg-white rounded-xl border-2 border-dashed border-gray-200">
-        <p className="text-4xl mb-4">🔍</p>
-        <p className="text-gray-500 text-lg">هیچ اثری با این مشخصات یافت نشد.</p>
-        <p className="text-gray-400 text-sm mt-2">فیلترها را تغییر دهید یا عبارت دیگری جستجو کنید.</p>
-      </div>
-    );
-  }
-
+  // Results
   return (
     <div className="space-y-4">
-      {results.map(edition => (
-        <PlayCard key={edition.id} edition={edition} onClick={onCardClick} />
+      {results.map((edition) => (
+        <PlayCard
+          key={edition.id}
+          edition={edition}
+          onClick={() => onCardClick(edition)}
+        />
       ))}
     </div>
   );

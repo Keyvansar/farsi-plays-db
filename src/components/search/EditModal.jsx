@@ -7,6 +7,7 @@ import RequiredFields from '../submit/RequiredFields';
 import OptionalFields from '../submit/OptionalFields';
 import Modal from '../ui/Modal';
 import { useCastTotal } from '../../hooks/useCastTotal';
+import FieldError from '../ui/FieldError';
 
 // ===== FIELD LABELS =====
 const FIELD_LABELS = {
@@ -51,7 +52,7 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
       title_fa: ed.title_fa || '',
       playwright_fa: work.playwright_fa?.join(', ') || '',
       source_language: work.source_language || 'fa',
-      translator_fa: ed.translator_fa?.join(', ') || '',
+      translator_fa: Array.isArray(ed.translator_fa) ? ed.translator_fa.join('، ') : (ed.translator_fa || ''),
       publication_status: ed.publication_status || 'published',
       publisher: ed.publisher || '',
       is_in_collection: ed.is_in_collection || false,
@@ -82,7 +83,7 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
 
   const { handleSubmit, reset, watch, setValue, getValues, control } = methods;
 
-   // Auto-calculate cast total (shared hook)
+  // Auto-calculate cast total (shared hook)
   useCastTotal(control, setValue);
 
   // ===== CALCULATE CHANGES =====
@@ -223,7 +224,7 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
             changed_by: user?.id || null,
           });
 
-        // ===== EXTERNAL REFERENCES =====
+          // ===== EXTERNAL REFERENCES =====
         } else if (change.field === 'external_references') {
           if (change.addedRefs?.length > 0) {
             const formData = getValues();
@@ -256,7 +257,7 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
             changed_by: user?.id || null,
           });
 
-        // ===== REGULAR FIELDS =====
+          // ===== REGULAR FIELDS =====
         } else {
           const worksTableFields = ['playwright_fa', 'original_title', 'source_language'];
           const isWorksField = worksTableFields.includes(change.field);
@@ -320,8 +321,10 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
 
       setMessage({ type: 'success', text: `✅ ${changes.length} تغییر مستقیماً اعمال شد.` });
       setTimeout(() => {
-        onSubmitted?.();
-        onClose();
+        reset();
+        setShowOptional(false);
+        skipDraftSave.current = false;
+        localStorage.removeItem(DRAFT_KEY); // Also remove here to be safe
       }, 1500);
 
     } catch (err) {
@@ -354,11 +357,10 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
     >
       {/* Messages */}
       {message.text && (
-        <div className={`mx-5 mt-4 p-3 rounded-lg text-sm border ${
-          message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
+        <div className={`mx-5 mt-4 p-3 rounded-lg text-sm border ${message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
           message.type === 'error' ? 'bg-red-50 text-red-800 border-red-200' :
-          'bg-blue-50 text-blue-800 border-blue-200'
-        }`}>
+            'bg-blue-50 text-blue-800 border-blue-200'
+          }`}>
           {message.text}
         </div>
       )}
@@ -463,6 +465,7 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
                 className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 bg-gray-50 focus:bg-white"
                 placeholder="خلاصه‌ای از داستان..."
               />
+              <FieldError id="synopsis-error" message={methods.formState.errors.synopsis?.message} />
             </div>
 
             {/* Submit */}

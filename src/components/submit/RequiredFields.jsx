@@ -1,111 +1,104 @@
+import React from 'react';
 import { useFormContext } from 'react-hook-form';
+import FieldError from '../ui/FieldError';
 
-export default function RequiredFields({ isCheckingDuplicate, lockedFields = {} }) {
-  const { register, formState: { errors }, watch } = useFormContext();
-  const watchedSourceLang = watch('source_language');
+const inputClass =
+  'w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 bg-gray-50 focus:bg-white transition-colors';
+const lockedClass = 'bg-gray-100 text-gray-500 cursor-not-allowed';
 
-  const inputClass = (isLocked) =>
-    `w-full px-4 py-3 border-2 rounded-xl focus:ring-0 transition-colors ${
-      isLocked
-        ? 'bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed'
-        : 'border-gray-200 focus:border-indigo-500 bg-gray-50 focus:bg-white'
-    }`;
+export default function RequiredFields({ isCheckingDuplicate = false, lockedFields = {} }) {
+  const {
+    register,
+    watch,
+    formState: { errors },
+  } = useFormContext();
+
+  const sourceLanguage = watch('source_language');
+  const isTranslated = !!sourceLanguage && sourceLanguage !== 'fa';
+  const isLocked = (name) => !!lockedFields[name];
 
   return (
-    <div className="space-y-4">
-      {/* Title */}
+    <div className="space-y-5">
+      {/* ===== Title ===== */}
       <div>
-        <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+        <label htmlFor="title_fa" className="block text-sm font-semibold text-gray-800 mb-1.5">
           عنوان نمایشنامه <span className="text-red-500">*</span>
-          {lockedFields.title_fa && <span className="text-xs text-gray-400 mr-2">(موجود)</span>}
         </label>
         <input
+          id="title_fa"
           type="text"
-          {...register('title_fa', { disabled: lockedFields.title_fa })}
-          className={inputClass(lockedFields.title_fa)}
-          placeholder="مثال: رستم و سهراب"
+          {...register('title_fa')}
+          disabled={isLocked('title_fa')}
+          aria-invalid={!!errors.title_fa}
+          aria-describedby="title_fa-error"
+          className={`${inputClass} ${isLocked('title_fa') ? lockedClass : ''}`}
+          placeholder="مثال: حکام قدیم، حکام جدید"
         />
-        {errors.title_fa && !lockedFields.title_fa && (
-          <p className="mt-1 text-sm text-red-600">{errors.title_fa.message}</p>
-        )}
+        <FieldError id="title_fa-error" message={errors.title_fa?.message} />
         {isCheckingDuplicate && (
-          <p className="mt-1 text-xs text-gray-500">در حال بررسی موارد مشابه...</p>
+          <p className="mt-1 text-xs text-blue-600">⏳ در حال بررسی موارد تکراری...</p>
         )}
       </div>
 
-      {/* Playwright */}
+      {/* ===== Playwright ===== */}
       <div>
-        <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+        <label htmlFor="playwright_fa" className="block text-sm font-semibold text-gray-800 mb-1.5">
           نویسنده / نمایشنامه‌نویس <span className="text-red-500">*</span>
-          {lockedFields.playwright_fa && <span className="text-xs text-gray-400 mr-2">(موجود)</span>}
         </label>
         <input
+          id="playwright_fa"
           type="text"
-          {...register('playwright_fa', { disabled: lockedFields.playwright_fa })}
-          className={inputClass(lockedFields.playwright_fa)}
-          placeholder="مثال: اکبر رادی"
+          {...register('playwright_fa')}
+          disabled={isLocked('playwright_fa')}
+          aria-invalid={!!errors.playwright_fa}
+          aria-describedby="playwright_fa-error"
+          className={`${inputClass} ${isLocked('playwright_fa') ? lockedClass : ''}`}
+          placeholder="مثال: مؤیدالممالک فکری ارشاد"
         />
-        {errors.playwright_fa && !lockedFields.playwright_fa && (
-          <p className="mt-1 text-sm text-red-600">{errors.playwright_fa.message}</p>
-        )}
+        <FieldError id="playwright_fa-error" message={errors.playwright_fa?.message} />
       </div>
 
-      {/* Source Language */}
+      {/* ===== Source Language ===== */}
       <div>
-        <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+        <label htmlFor="source_language" className="block text-sm font-semibold text-gray-800 mb-1.5">
           زبان اصلی اثر
-          {lockedFields.source_language && <span className="text-xs text-gray-400 mr-2">(موجود)</span>}
         </label>
         <select
-          {...register('source_language', { disabled: lockedFields.source_language })}
-          className={inputClass(lockedFields.source_language)}
+          id="source_language"
+          {...register('source_language')}
+          disabled={isLocked('source_language')}
+          aria-invalid={!!errors.source_language}
+          aria-describedby="source_language-error"
+          className={`${inputClass} ${isLocked('source_language') ? lockedClass : ''}`}
         >
           <option value="fa">فارسی (تألیفی)</option>
-          <option value="en">انگلیسی (ترجمه)</option>
-          <option value="fr">فرانسوی (ترجمه)</option>
-          <option value="de">آلمانی (ترجمه)</option>
-          <option value="ru">روسی (ترجمه)</option>
-          <option value="ar">عربی (ترجمه)</option>
-          <option value="tr">ترکی (ترجمه)</option>
+          <option value="en">انگلیسی</option>
+          <option value="ar">عربی</option>
+          <option value="fr">فرانسوی</option>
+          <option value="de">آلمانی</option>
+          <option value="ru">روسی</option>
           <option value="other">سایر</option>
         </select>
+        <FieldError id="source_language-error" message={errors.source_language?.message} />
       </div>
 
-      {/* Translator (Conditional) */}
-      {watchedSourceLang !== 'fa' && (
-        <div>
-          <label className="block text-sm font-semibold text-gray-800 mb-1.5">
-            مترجم <span className="text-red-500">*</span>
-            {lockedFields.translator_fa && <span className="text-xs text-gray-400 mr-2">(موجود)</span>}
-          </label>
-          <input
-            type="text"
-            {...register('translator_fa', { disabled: lockedFields.translator_fa })}
-            className={inputClass(lockedFields.translator_fa)}
-            placeholder="مثال: نجف دریابندری"
-          />
-          {errors.translator_fa && !lockedFields.translator_fa && (
-            <p className="mt-1 text-sm text-red-600">{errors.translator_fa.message}</p>
-          )}
-        </div>
-      )}
-
-      {/* Original Title (Conditional) */}
-      {watchedSourceLang !== 'fa' && (
-        <div>
-          <label className="block text-sm font-semibold text-gray-800 mb-1.5">
-            عنوان اصلی اثر
-            {lockedFields.original_title && <span className="text-xs text-gray-400 mr-2">(موجود)</span>}
-          </label>
-          <input
-            type="text"
-            {...register('original_title', { disabled: lockedFields.original_title })}
-            className={inputClass(lockedFields.original_title)}
-            placeholder="Original Title"
-            dir="ltr"
-          />
-        </div>
-      )}
+      {/* ===== Translator ===== */}
+      <div>
+        <label htmlFor="translator_fa" className="block text-sm font-semibold text-gray-800 mb-1.5">
+          مترجم {isTranslated && <span className="text-red-500">*</span>}
+        </label>
+        <input
+          id="translator_fa"
+          type="text"
+          {...register('translator_fa')}
+          disabled={isLocked('translator_fa')}
+          aria-invalid={!!errors.translator_fa}
+          aria-describedby="translator_fa-error"
+          className={`${inputClass} ${isLocked('translator_fa') ? lockedClass : ''}`}
+          placeholder={isTranslated ? 'نام مترجم الزامی است' : 'فقط برای آثار ترجمه‌شده'}
+        />
+        <FieldError id="translator_fa-error" message={errors.translator_fa?.message} />
+      </div>
     </div>
   );
 }

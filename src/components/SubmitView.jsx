@@ -8,6 +8,7 @@ import { useCastTotal } from '../hooks/useCastTotal';
 import RequiredFields from './submit/RequiredFields';
 import OptionalFields from './submit/OptionalFields';
 import DuplicateWarning from './submit/DuplicateWarning';
+import FieldError from './ui/FieldError';
 
 const DRAFT_KEY = 'submission_draft';
 
@@ -67,9 +68,10 @@ export default function SubmitView({ user }) {
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   const [lockedFields, setLockedFields] = useState({});
 
-  // ===== RATE LIMIT =====
+  // ===== RATE LIMIT & DRAFT REFS =====
   const [lastSubmitTime, setLastSubmitTime] = useState(0);
   const draftTimer = useRef(null);
+  const skipDraftSave = useRef(false);
 
   const watchedTitle = watch('title_fa');
 
@@ -91,7 +93,7 @@ export default function SubmitView({ user }) {
     }
   }, [castMen, castWomen, castNonspecific, castTotal, castUnknown]);
 
-  // ===== DRAFT PERSISTENCE =====
+  // ===== DRAFT PERSISTENCE: LOAD ON MOUNT =====
   useEffect(() => {
     const draft = localStorage.getItem(DRAFT_KEY);
     if (draft) {
@@ -106,12 +108,16 @@ export default function SubmitView({ user }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ===== DRAFT PERSISTENCE: SAVE (DEBOUNCED, WITH SKIP GUARD) =====
   useEffect(() => {
     const subscription = watch((value, { name }) => {
       if (!name) return;
       if (draftTimer.current) clearTimeout(draftTimer.current);
       draftTimer.current = setTimeout(() => {
-        localStorage.setItem(DRAFT_KEY, JSON.stringify(value));
+        // BUG FIX: don't re-save stale data after the form was cleared
+        if (!skipDraftSave.current) {
+          localStorage.setItem(DRAFT_KEY, JSON.stringify(value));
+        }
       }, 800);
     });
     return () => {
@@ -186,14 +192,12 @@ export default function SubmitView({ user }) {
       const ed = selectedMergeTarget;
       const work = ed.works || {};
 
-      // Extract tags and links FIRST
       const editionTags = ed.edition_tags?.map(et => et.taxonomy?.label_fa).filter(Boolean) || [];
       const editionRefs = ed.external_references?.filter(r => r.url).map(r => ({
         url: r.url,
         ref_type: r.ref_type || 'other',
       })) || [];
 
-      // Build locked fields map
       const locks = {
         title_fa: !!ed.title_fa,
         playwright_fa: !!(work.playwright_fa && work.playwright_fa.length > 0),
@@ -219,7 +223,6 @@ export default function SubmitView({ user }) {
       };
       setLockedFields(locks);
 
-      // Use reset() to properly initialize useFieldArray fields (tags, external_references)
       reset({
         title_fa: ed.title_fa || '',
         playwright_fa: work.playwright_fa?.join(', ') || '',
@@ -401,7 +404,6 @@ export default function SubmitView({ user }) {
       .eq('id', ed.id);
     if (edErr) throw edErr;
 
-    // Add only NEW links (avoid duplicating existing ones)
     const existingUrls = (ed.external_references || []).map(r => r.url);
     const newRefs = p.external_references.filter(r => !existingUrls.includes(r.url));
     if (newRefs.length > 0) {
@@ -410,7 +412,6 @@ export default function SubmitView({ user }) {
       );
     }
 
-    // Add tags (upsert handles existing)
     for (const label of p.tags) {
       let { data: tax } = await supabase.from('taxonomy').select('id').eq('label_fa', label).maybeSingle();
       if (!tax) {
@@ -432,7 +433,7 @@ export default function SubmitView({ user }) {
     return ed.id;
   };
 
-  // Queue edit suggestions for unlocked (previously empty) fields (non-moderators completing a duplicate)
+  // Queue edit suggestions for unlocked fields (non-moderators completing a duplicate)
   const queueCompletionSuggestions = async (p) => {
     const ed = selectedMergeTarget;
 
@@ -480,7 +481,7 @@ export default function SubmitView({ user }) {
     };
 
     for (const field of SUGGESTABLE_FIELDS) {
-      if (lockedFields[field]) continue; // field already had a value
+      if (lockedFields[field]) continue;
       const newValue = getNewValue(field);
       if (!newValue) continue;
 
@@ -502,7 +503,6 @@ export default function SubmitView({ user }) {
 
   // ===== SUBMIT =====
   const onSubmit = async (formData) => {
-    // Client-side cooldown (10s)
     const now = Date.now();
     if (now - lastSubmitTime < 10000) {
       setMessage({ type: 'error', text: 'لطفاً چند ثانیه صبر کنید و دوباره تلاش کنید.' });
@@ -539,7 +539,11 @@ export default function SubmitView({ user }) {
         setMessage({ type: 'success', text: '✅ اثر شما برای بررسی ثبت شد. پس از تایید ویراستاران منتشر خواهد شد.' });
       }
 
+      // Clear draft safely (cancel pending timer + skip guard)
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+      skipDraftSave.current = true;
       localStorage.removeItem(DRAFT_KEY);
+
       setSelectedMergeTarget(null);
       setDuplicateMatches([]);
       setIsCompletingDuplicate(false);
@@ -548,6 +552,7 @@ export default function SubmitView({ user }) {
       setTimeout(() => {
         reset();
         setShowOptional(false);
+        skipDraftSave.current = false;
       }, 1500);
 
     } catch (err) {
@@ -556,6 +561,27 @@ export default function SubmitView({ user }) {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // ===== CLEAR FORM (BUG FIX: fully clears saved draft) =====
+  const handleClearForm = () => {
+    // 1. Cancel any pending draft-save timer (prevents stale data re-save)
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    // 2. Block the watch subscription from re-saving during reset
+    skipDraftSave.current = true;
+    // 3. Delete the stored draft
+    localStorage.removeItem(DRAFT_KEY);
+    // 4. Reset the form and related state
+    reset();
+    setLockedFields({});
+    setIsCompletingDuplicate(false);
+    setSelectedMergeTarget(null);
+    setDuplicateMatches([]);
+    setMessage({ type: 'info', text: 'فرم پاک شد.' });
+    // 5. Re-enable draft saving for future typing
+    setTimeout(() => {
+      skipDraftSave.current = false;
+    }, 0);
   };
 
   return (
@@ -570,11 +596,10 @@ export default function SubmitView({ user }) {
 
         {/* Messages */}
         {message.text && (
-          <div className={`p-3 mb-4 rounded-lg text-sm border ${
-            message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
+          <div className={`p-3 mb-4 rounded-lg text-sm border ${message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
             message.type === 'error' ? 'bg-red-50 text-red-800 border-red-200' :
-            'bg-blue-50 text-blue-800 border-blue-200'
-          }`}>
+              'bg-blue-50 text-blue-800 border-blue-200'
+            }`}>
             {message.text}
           </div>
         )}
@@ -611,11 +636,11 @@ export default function SubmitView({ user }) {
                 {...methods.register('synopsis')}
                 rows={4}
                 disabled={!!lockedFields.synopsis}
-                className={`w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 bg-gray-50 focus:bg-white ${
-                  lockedFields.synopsis ? 'bg-gray-100 text-gray-500' : ''
-                }`}
+                className={`w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 bg-gray-50 focus:bg-white ${lockedFields.synopsis ? 'bg-gray-100 text-gray-500' : ''
+                  }`}
                 placeholder="خلاصه‌ای از داستان..."
               />
+              <FieldError id="synopsis-error" message={methods.formState.errors.synopsis?.message} />
             </div>
 
             {/* Guest attribution */}
@@ -643,18 +668,11 @@ export default function SubmitView({ user }) {
               </div>
             )}
 
-            {/* Submit */}
+            {/* Actions */}
             <div className="flex gap-3 pt-4 border-t border-gray-100">
               <button
                 type="button"
-                onClick={() => {
-                  localStorage.removeItem(DRAFT_KEY);
-                  reset();
-                  setLockedFields({});
-                  setIsCompletingDuplicate(false);
-                  setSelectedMergeTarget(null);
-                  setMessage({ type: 'info', text: 'فرم پاک شد.' });
-                }}
+                onClick={handleClearForm}
                 className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
               >
                 🧹 پاک کردن فرم
