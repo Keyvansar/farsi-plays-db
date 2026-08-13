@@ -28,16 +28,22 @@ export default function ModerationView() {
 
   const fetchPending = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('pending_submissions')
-      .select('*')
-      .eq('status', 'pending')
-      .order('submitted_at', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('pending_submissions')
+        .select('*')
+        .eq('status', 'pending')
+        .order('submitted_at', { ascending: false });
 
-    if (error) console.error('Fetch error:', error);
-    setSubmissions(data || []);
-    setSelectedIds(new Set());
-    setLoading(false);
+      if (error) throw error;
+      setSubmissions(data || []);
+      setSelectedIds(new Set());
+    } catch (err) {
+      console.error('Fetch error:', err);
+      setMessage({ type: 'error', text: 'خطا در بارگذاری کارتابل. لطفاً دوباره تلاش کنید.' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchPending(); }, []);
@@ -69,24 +75,29 @@ export default function ModerationView() {
     let successCount = 0;
     let errorCount = 0;
 
-    for (const id of ids) {
-      const { data, error } = await supabase.rpc('approve_pending_submission', { submission_id: id });
-      if (error || (data && !data.success)) {
-        errorCount++;
-        console.error(`Approve failed for ${id}:`, error?.message || data?.error);
-      } else {
-        successCount++;
+    try {
+      for (const id of ids) {
+        const { data, error } = await supabase.rpc('approve_pending_submission', { submission_id: id });
+        if (error || (data && !data.success)) {
+          errorCount++;
+        } else {
+          successCount++;
+        }
       }
-    }
 
-    setSubmissions(subs => subs.filter(s => !ids.includes(s.id)));
-    setSelectedIds(new Set());
-    setProcessingIds(new Set());
+      setSubmissions(subs => subs.filter(s => !ids.includes(s.id)));
+      setSelectedIds(new Set());
 
-    if (errorCount === 0) {
-      setMessage({ type: 'success', text: `✅ ${successCount} مورد با موفقیت تایید شد.` });
-    } else {
-      setMessage({ type: 'error', text: `⚠️ ${successCount} تایید شد، ${errorCount} خطا داشت.` });
+      if (errorCount === 0) {
+        setMessage({ type: 'success', text: `✅ ${successCount} مورد با موفقیت تایید شد.` });
+      } else {
+        setMessage({ type: 'error', text: `⚠️ ${successCount} تایید شد، ${errorCount} خطا داشت.` });
+      }
+    } catch (err) {
+      console.error('Bulk approve error:', err);
+      setMessage({ type: 'error', text: 'خطا در پردازش درخواست‌ها. لطفاً دوباره تلاش کنید.' });
+    } finally {
+      setProcessingIds(new Set());
     }
   };
 
