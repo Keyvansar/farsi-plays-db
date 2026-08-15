@@ -33,7 +33,8 @@ export default function ExternalLinksSection() {
               <button
                 type="button"
                 onClick={() => remove(index)}
-                className="text-red-500 hover:text-red-700 text-sm font-bold"
+                className="text-red-500 hover:text-red-700 text-sm font-bold focus-visible:ring-2 focus-visible:ring-red-500 rounded px-1 outline-none"
+                aria-label={`حذف لینک ${field.url}`}
               >
                 ✕
               </button>

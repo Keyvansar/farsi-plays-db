@@ -15,7 +15,7 @@ export default function FilterSidebar({
       <div className="flex justify-between items-center">
         <h3 className="font-bold text-gray-900">🔧 فیلترها</h3>
         {activeCount > 0 && (
-          <button onClick={onClearAll} className="text-xs text-red-500 hover:text-red-700 font-medium">
+          <button onClick={onClearAll} className="text-xs text-red-500 hover:text-red-700 font-medium focus-visible:ring-2 focus-visible:ring-red-500 rounded px-1 outline-none" aria-label="پاک کردن همه فیلترها">
             پاک کردن همه ({activeCount})
           </button>
         )}

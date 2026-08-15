@@ -21,6 +21,9 @@ export default function AccountView({ user }) {
     admin: 'مدیر',
   };
 
+  const [userSubmissions, setUserSubmissions] = useState([]);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(true);
+
   // Fetch user role from user_roles table
   useEffect(() => {
     const fetchUserRole = async () => {
@@ -40,7 +43,27 @@ export default function AccountView({ user }) {
       }
     };
 
+    const fetchUserSubmissions = async () => {
+      if (!user?.id) return;
+      setLoadingSubmissions(true);
+      try {
+        const { data, error } = await supabase
+          .from('pending_submissions')
+          .select('*')
+          .eq('submitted_by', user.id)
+          .order('submitted_at', { ascending: false });
+
+        if (error) throw error;
+        setUserSubmissions(data || []);
+      } catch (err) {
+        console.error('Error fetching user submissions:', err);
+      } finally {
+        setLoadingSubmissions(false);
+      }
+    };
+
     fetchUserRole();
+    fetchUserSubmissions();
   }, [user]);
 
   const handleUpdateName = async (e) => {
@@ -219,6 +242,57 @@ export default function AccountView({ user }) {
             {isUpdatingPassword ? '⏳ در حال تغییر...' : '🔒 تغییر رمز عبور'}
           </button>
         </form>
+      </div>
+
+      {/* Sign Out */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">📋 سوابق فعالیت‌های من</h3>
+
+        {loadingSubmissions ? (
+          <div className="text-center py-8 text-gray-500">در حال بارگذاری...</div>
+        ) : userSubmissions.length === 0 ? (
+          <div className="text-center py-10 px-4 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
+            <div className="text-4xl mb-3">📝</div>
+            <h4 className="text-gray-900 font-bold mb-2">هنوز فعالیتی ثبت نکرده‌اید!</h4>
+            <p className="text-sm text-gray-500 mb-4">
+              با ثبت نمایشنامه‌های جدید، ویرایش اطلاعات یا پیشنهاد تغییرات، در تکمیل این بانک اطلاعاتی مشارکت کنید.
+            </p>
+            <a
+              href="/submit"
+              className="inline-block px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+            >
+              ثبت اثر جدید
+            </a>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {userSubmissions.slice(0, 5).map(sub => (
+              <div key={sub.id} className="p-3 border border-gray-100 rounded-lg bg-gray-50 flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-bold text-gray-800">
+                    {sub.payload?.title_fa || sub.action_type}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {new Date(sub.submitted_at).toLocaleDateString('fa-IR')}
+                  </p>
+                </div>
+                <span className={`px-2 py-1 text-xs rounded-full font-medium ${
+                  sub.status === 'approved' ? 'bg-green-100 text-green-700' :
+                  sub.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                  'bg-yellow-100 text-yellow-700'
+                }`}>
+                  {sub.status === 'approved' ? 'تایید شده' :
+                   sub.status === 'rejected' ? 'رد شده' : 'در حال بررسی'}
+                </span>
+              </div>
+            ))}
+            {userSubmissions.length > 5 && (
+              <p className="text-center text-sm text-gray-500 pt-2">
+                و {userSubmissions.length - 5} فعالیت دیگر...
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Sign Out */}

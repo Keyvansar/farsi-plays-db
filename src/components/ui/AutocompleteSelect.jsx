@@ -118,8 +118,8 @@ export default function AutocompleteSelect({
       <div ref={containerRef} className="relative">
         {/* Selected Chips + Input Container */}
         <div
-          className={`min-h-[44px] w-full px-3 py-2 border-2 rounded-xl bg-white focus-within:border-indigo-500 transition-colors cursor-text ${
-            isOpen ? 'border-indigo-500' : 'border-gray-200'
+          className={`min-h-[44px] w-full px-3 py-2 border-2 rounded-xl bg-white focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition-all cursor-text ${
+            isOpen ? 'border-indigo-500 ring-2 ring-indigo-100' : 'border-gray-200'
           }`}
           onClick={() => inputRef.current?.focus()}
         >
@@ -139,7 +139,7 @@ export default function AutocompleteSelect({
                       e.stopPropagation();
                       removeChip(val);
                     }}
-                    className="text-indigo-400 hover:text-indigo-600 font-bold leading-none"
+                    className="text-indigo-400 hover:text-indigo-600 font-bold leading-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded px-1 outline-none"
                     aria-label={`حذف ${displayLabel}`}
                   >
                     ✕
@@ -180,9 +180,9 @@ export default function AutocompleteSelect({
                   type="button"
                   onClick={() => toggleSelect(opt.value)}
                   onMouseEnter={() => setHighlightIndex(index)}
-                  className={`w-full text-right px-3 py-2 text-sm transition-colors ${
+                  className={`w-full text-right px-3 py-2 text-sm transition-colors focus:outline-none ${
                     index === highlightIndex
-                      ? 'bg-indigo-50 text-indigo-900'
+                      ? 'bg-indigo-50 text-indigo-900 font-medium'
                       : 'hover:bg-gray-50 text-gray-700'
                   }`}
                 >

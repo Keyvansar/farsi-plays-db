@@ -104,25 +104,25 @@ export default function PlayDetailModal({ edition, onClose, onEdit, onSuggest, o
         <div className="flex gap-2">
           <button
             onClick={() => { onClose(); onEdit?.(edition); }}
-            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors text-sm"
+            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 outline-none transition-colors text-sm"
           >
             ✏️ ویرایش
           </button>
           <button
             onClick={() => { onClose(); onSuggest?.(edition); }}
-            className="flex-1 py-2.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg font-medium hover:bg-yellow-100 transition-colors text-sm"
+            className="flex-1 py-2.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg font-medium hover:bg-yellow-100 focus-visible:ring-2 focus-visible:ring-yellow-500 focus-visible:ring-offset-2 outline-none transition-colors text-sm"
           >
             💡 پیشنهاد
           </button>
           <button
             onClick={() => { onClose(); onFlag?.(edition); }}
-            className="flex-1 py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-lg font-medium hover:bg-red-100 transition-colors text-sm"
+            className="flex-1 py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-lg font-medium hover:bg-red-100 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 outline-none transition-colors text-sm"
           >
             🚩 گزارش
           </button>
           <button
             onClick={() => { onClose(); onDelete?.(edition); }}
-            className="flex-1 py-2.5 bg-gray-100 text-gray-600 border border-gray-200 rounded-lg font-medium hover:bg-gray-200 transition-colors text-sm"
+            className="flex-1 py-2.5 bg-gray-100 text-gray-600 border border-gray-200 rounded-lg font-medium hover:bg-gray-200 focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 outline-none transition-colors text-sm"
           >
             🗑️ حذف
           </button>

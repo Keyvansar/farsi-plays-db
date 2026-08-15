@@ -90,7 +90,8 @@ export default function TagsSection({ lockedFields = {} }) {
                 <button
                   type="button"
                   onClick={() => remove(index)}
-                  className="text-indigo-400 hover:text-indigo-600 font-bold"
+                  className="text-indigo-400 hover:text-indigo-600 font-bold focus-visible:ring-2 focus-visible:ring-indigo-500 rounded px-1 outline-none"
+                  aria-label={`حذف برچسب ${displayValue}`}
                 >
                   ✕
                 </button>

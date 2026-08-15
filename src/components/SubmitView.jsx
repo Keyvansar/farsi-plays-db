@@ -649,10 +649,35 @@ export default function SubmitView({ user }) {
                 type="button"
                 onClick={() => {
                   localStorage.removeItem(DRAFT_KEY);
-                  reset();
+                  reset({
+                    title_fa: '',
+                    playwright_fa: '',
+                    source_language: 'fa',
+                    translator_fa: '',
+                    publication_status: 'published',
+                    publisher: '',
+                    is_in_collection: false,
+                    collection_title: '',
+                    original_title: '',
+                    publication_year_solar: '',
+                    publication_year_gregorian: '',
+                    original_year: '',
+                    isbn: '',
+                    page_count: '',
+                    cast_men: '',
+                    cast_women: '',
+                    cast_nonspecific: '',
+                    cast_total: '',
+                    synopsis: '',
+                    tags: [],
+                    external_references: [],
+                    submitter_name: '',
+                    submitter_email: '',
+                  });
                   setLockedFields({});
                   setIsCompletingDuplicate(false);
                   setSelectedMergeTarget(null);
+                  setDuplicateMatches([]);
                   setMessage({ type: 'info', text: 'فرم پاک شد.' });
                 }}
                 className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"

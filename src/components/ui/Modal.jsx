@@ -55,7 +55,7 @@ export default function Modal({
             {headerActions}
             <button 
               onClick={onClose} 
-              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 text-xl"
+              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 text-xl focus-visible:ring-2 focus-visible:ring-gray-400 outline-none"
               aria-label="بستن"
             >
               ✕
