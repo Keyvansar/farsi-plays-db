@@ -31,7 +31,6 @@ export default function FilterSidebar({
       search_term: term,
       limit_val: 50,
     });
-    // FIX: Extract .name from the row object
     return (data || []).map(row => ({ value: row.name, label: row.name }));
   }}
   placeholder="نام نویسنده..."
@@ -47,7 +46,6 @@ export default function FilterSidebar({
       search_term: term,
       limit_val: 50,
     });
-    // FIX: Extract .name from the row object
     return (data || []).map(row => ({ value: row.name, label: row.name }));
   }}
   placeholder="نام مترجم..."
@@ -112,7 +110,6 @@ export default function FilterSidebar({
       search_term: term,
       limit_val: 50,
     });
-    // FIX: Extract .id and .label_fa from the row object
     return (data || []).map(row => ({ value: row.id, label: row.label_fa }));
   }}
   placeholder="جستجوی برچسب..."
