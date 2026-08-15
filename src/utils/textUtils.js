@@ -34,3 +34,24 @@ export const joinNamesFromArray = (arr) => {
   if (!Array.isArray(arr)) return arr || '';
   return arr.join('، ');
 };
+
+/**
+ * Sanitizes a URL to ensure it uses a safe protocol (http, https, or mailto).
+ * Prevents XSS attacks via javascript:, data:, or vbscript: URLs.
+ * @param {string} urlString - The URL to sanitize
+ * @returns {string} - The sanitized URL or 'about:blank' if unsafe/invalid
+ */
+export const sanitizeUrl = (urlString) => {
+  if (!urlString) return 'about:blank';
+  try {
+    const url = new URL(urlString);
+    const safeProtocols = ['http:', 'https:', 'mailto:'];
+    if (safeProtocols.includes(url.protocol.toLowerCase())) {
+      return url.href;
+    }
+    return 'about:blank';
+  } catch (err) {
+    // If URL parsing fails, we treat it as an unsafe/invalid URL
+    return 'about:blank';
+  }
+};
