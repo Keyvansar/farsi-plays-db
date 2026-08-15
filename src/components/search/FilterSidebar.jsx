@@ -29,7 +29,7 @@ export default function FilterSidebar({
       search_term: term,
       limit_val: 50,
     });
-    return (data || []).map(row => ({ value: row.name, label: row.name }));
+    return (data || []).map(({ name }) => ({ value: name, label: name }));
   }}
   placeholder="نام نویسنده..."
 />
@@ -44,7 +44,7 @@ export default function FilterSidebar({
       search_term: term,
       limit_val: 50,
     });
-    return (data || []).map(row => ({ value: row.name, label: row.name }));
+    return (data || []).map(({ name }) => ({ value: name, label: name }));
   }}
   placeholder="نام مترجم..."
 />
@@ -108,7 +108,7 @@ export default function FilterSidebar({
       search_term: term,
       limit_val: 50,
     });
-    return (data || []).map(row => ({ value: row.id, label: row.label_fa }));
+    return (data || []).map(({ id, label_fa }) => ({ value: id, label: label_fa }));
   }}
   placeholder="جستجوی برچسب..."
 />
