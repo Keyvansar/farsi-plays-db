@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { sanitizeUrl } from '../utils/textUtils';
 
 const TABS = [
   { key: 'all', label: 'همه', icon: '📋' },
@@ -253,7 +254,7 @@ export default function ModerationView() {
             <p className="text-xs font-bold text-indigo-600 mb-2">🔗 لینک‌های خارجی</p>
             <div className="space-y-1">
               {p.external_references.map((ref, i) => (
-                <a key={i} href={ref.url} target="_blank" rel="noopener noreferrer"
+                <a key={i} href={sanitizeUrl(ref.url)} target="_blank" rel="noopener noreferrer"
                   className="block text-xs text-indigo-600 hover:text-indigo-800 truncate" dir="ltr">
                   {ref.ref_type === 'ebook' ? '📖' : ref.ref_type === 'article' ? '📄' : '🔗'} {ref.url}
                 </a>
