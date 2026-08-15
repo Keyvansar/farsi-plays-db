@@ -3,10 +3,21 @@ export default function PlayCard({ edition, onClick }) {
   const tags = edition.edition_tags?.map(et => et.taxonomy?.label_fa).filter(Boolean) || [];
   const formatList = (arr) => Array.isArray(arr) ? arr.join('، ') : arr;
 
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick(edition);
+    }
+  };
+
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={() => onClick(edition)}
-      className="bg-white border border-gray-200 rounded-xl p-5 cursor-pointer hover:shadow-md hover:border-indigo-200 transition-all"
+      onKeyDown={handleKeyDown}
+      aria-label={`نمایش جزئیات نمایشنامه ${edition.title_fa}`}
+      className="bg-white border border-gray-200 rounded-xl p-5 cursor-pointer hover:shadow-md hover:border-indigo-200 focus-visible:ring-2 focus-visible:ring-indigo-500 focus:outline-none transition-all"
     >
       <div className="flex justify-between items-start mb-2">
         <h3 className="text-lg font-bold text-gray-900">{edition.title_fa}</h3>
