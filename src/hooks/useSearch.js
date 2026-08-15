@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
@@ -38,9 +38,12 @@ export function useSearch() {
 
   // Track initialization
   const [initialized, setInitialized] = useState(false);
+  const isInitialized = useRef(false);
 
   // ===== INITIALIZE FROM URL PARAMS =====
   useEffect(() => {
+    if (isInitialized.current) return;
+
     const urlSearch = searchParams.get('q') || '';
     const urlScope = searchParams.get('scope') || 'all';
     const urlPage = parseInt(searchParams.get('page') || '1');
@@ -66,7 +69,8 @@ export function useSearch() {
     setPage(urlPage);
     setFilters(urlFilters);
     setInitialized(true);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    isInitialized.current = true;
+  }, [searchParams]);
 
   // ===== SYNC STATE TO URL =====
   useEffect(() => {
