@@ -1,11 +1,9 @@
 import React from 'react';
-import AutocompleteFilter from './AutocompleteFilter';
 import AutocompleteSelect from '../ui/AutocompleteSelect';
 import { supabase } from '../../lib/supabase';
 
 export default function FilterSidebar({
   filters, setFilters,
-  playwrights, translators, tags,
   onClearAll, activeCount
 }) {
   const updateFilter = (key, value) => setFilters(prev => ({ ...prev, [key]: value }));
