@@ -22,7 +22,9 @@ export default function DeleteConfirmModal({ edition, user, onClose, onSubmitted
   };
 
   const needsOtherText = reasons.includes('other');
-  const canSubmit = reasons.length > 0 && (!needsOtherText || otherReason.trim().length >= 3);
+  const hasSelectedReason = reasons.length > 0;
+  const hasValidOtherReason = !needsOtherText || otherReason.trim().length >= 3;
+  const canSubmit = hasSelectedReason && hasValidOtherReason;
 
   const handleSubmit = async () => {
     setSubmitting(true);
