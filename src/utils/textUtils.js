@@ -32,7 +32,7 @@ export const parseNamesToArray = (str) => {
  */
 export const joinNamesFromArray = (arr) => {
   if (!Array.isArray(arr)) return arr || '';
-  return arr.join('، ');
+  return arr.filter(Boolean).join('، ');
 };
 
 /**

@@ -1,4 +1,5 @@
 import React from 'react';
+import { joinNamesFromArray } from '../../utils/textUtils';
 
 export default function DuplicateWarning({
   matches = [],
@@ -8,9 +9,6 @@ export default function DuplicateWarning({
   isCompleting = false,
   onChange,
 }) {
-  const formatList = (arr) =>
-    Array.isArray(arr) ? arr.filter(Boolean).join('، ') : arr || '';
-
   // Loading state while checking for duplicates
   if (isChecking) {
     return (
@@ -64,9 +62,9 @@ export default function DuplicateWarning({
                   <p className="font-bold text-gray-900">📖 {match.title_fa}</p>
 
                   <p className="text-sm text-gray-600 mt-1">
-                    ✍️ {formatList(work.playwright_fa) || 'نامشخص'}
+                    ✍️ {joinNamesFromArray(work.playwright_fa) || 'نامشخص'}
                     {match.translator_fa?.length > 0 && (
-                      <span> | 🔄 {formatList(match.translator_fa)}</span>
+                      <span> | 🔄 {joinNamesFromArray(match.translator_fa)}</span>
                     )}
                   </p>
 
