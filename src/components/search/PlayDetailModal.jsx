@@ -1,11 +1,11 @@
 import Modal from '../ui/Modal';
+import { joinNamesFromArray } from '../../utils/textUtils';
 
 export default function PlayDetailModal({ edition, onClose, onEdit, onSuggest, onFlag, onDelete }) {
   if (!edition) return null;
   const work = edition.works;
   const tags = edition.edition_tags?.map(et => et.taxonomy?.label_fa).filter(Boolean) || [];
   const refs = edition.external_references || [];
-  const formatList = (arr) => Array.isArray(arr) ? arr.join('، ') : arr;
 
   return (
     <Modal 
@@ -19,8 +19,8 @@ export default function PlayDetailModal({ edition, onClose, onEdit, onSuggest, o
         <section>
           <h3 className="text-sm font-bold text-indigo-600 mb-3">📌 اطلاعات اصلی</h3>
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span className="text-gray-500">نویسنده:</span> <strong>{formatList(work?.playwright_fa) || '—'}</strong></div>
-            <div><span className="text-gray-500">مترجم:</span> <strong>{formatList(edition.translator_fa) || '—'}</strong></div>
+            <div><span className="text-gray-500">نویسنده:</span> <strong>{joinNamesFromArray(work?.playwright_fa) || '—'}</strong></div>
+            <div><span className="text-gray-500">مترجم:</span> <strong>{joinNamesFromArray(edition.translator_fa) || '—'}</strong></div>
             <div><span className="text-gray-500">زبان اصلی:</span> <strong>{work?.source_language === 'fa' ? 'فارسی' : work?.source_language}</strong></div>
             <div><span className="text-gray-500">وضعیت:</span> <strong>{edition.publication_status}</strong></div>
           </div>

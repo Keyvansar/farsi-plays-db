@@ -1,7 +1,8 @@
+import { joinNamesFromArray } from '../../utils/textUtils';
+
 export default function PlayCard({ edition, onClick }) {
   const work = edition.works;
   const tags = edition.edition_tags?.map(et => et.taxonomy?.label_fa).filter(Boolean) || [];
-  const formatList = (arr) => Array.isArray(arr) ? arr.join('، ') : arr;
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -27,7 +28,7 @@ export default function PlayCard({ edition, onClick }) {
       </div>
 
       <p className="text-gray-600 text-sm mb-3">
-        <span className="font-medium">نویسنده:</span> {formatList(work?.playwright_fa) || 'نامشخص'}
+        <span className="font-medium">نویسنده:</span> {joinNamesFromArray(work?.playwright_fa) || 'نامشخص'}
       </p>
 
       <div className="flex flex-wrap gap-3 text-xs text-gray-500 mb-3">
