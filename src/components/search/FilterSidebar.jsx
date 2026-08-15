@@ -1,11 +1,9 @@
 import React from 'react';
-import AutocompleteFilter from './AutocompleteFilter';
 import AutocompleteSelect from '../ui/AutocompleteSelect';
 import { supabase } from '../../lib/supabase';
 
 export default function FilterSidebar({
   filters, setFilters,
-  playwrights, translators, tags,
   onClearAll, activeCount
 }) {
   const updateFilter = (key, value) => setFilters(prev => ({ ...prev, [key]: value }));
@@ -31,7 +29,6 @@ export default function FilterSidebar({
       search_term: term,
       limit_val: 50,
     });
-    // FIX: Extract .name from the row object
     return (data || []).map(row => ({ value: row.name, label: row.name }));
   }}
   placeholder="نام نویسنده..."
@@ -47,7 +44,6 @@ export default function FilterSidebar({
       search_term: term,
       limit_val: 50,
     });
-    // FIX: Extract .name from the row object
     return (data || []).map(row => ({ value: row.name, label: row.name }));
   }}
   placeholder="نام مترجم..."
@@ -112,7 +108,6 @@ export default function FilterSidebar({
       search_term: term,
       limit_val: 50,
     });
-    // FIX: Extract .id and .label_fa from the row object
     return (data || []).map(row => ({ value: row.id, label: row.label_fa }));
   }}
   placeholder="جستجوی برچسب..."
