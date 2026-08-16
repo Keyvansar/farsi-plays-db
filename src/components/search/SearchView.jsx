@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import React, { useState } from 'react';
 import { useSearch } from '../../hooks/useSearch';
 import FilterSidebar from './FilterSidebar';
 import SearchResults from './SearchResults';
@@ -27,47 +26,6 @@ export default function SearchView({ user }) {
   const [editTarget, setEditTarget] = useState(null);
   const [editMode, setEditMode] = useState('edit');
   const [deleteTarget, setDeleteTarget] = useState(null);
-
-  // Filter options (kept local for now, could be extracted later)
-  const [allPlaywrights, setAllPlaywrights] = useState([]);
-  const [allTranslators, setAllTranslators] = useState([]);
-  const [allTags, setAllTags] = useState([]);
-
-  // ===== LOAD FILTER OPTIONS =====
-  useEffect(() => {
-    const loadOptions = async () => {
-      try {
-        const [worksRes, editionsRes, tagsRes] = await Promise.all([
-          supabase.from('works').select('playwright_fa'),
-          supabase.from('farsi_editions').select('translator_fa'),
-          supabase.from('farsi_editions')
-            .select('edition_tags(taxonomy_id, taxonomy(id, label_fa))')
-            .eq('is_verified', true),
-        ]);
-
-        const pwSet = new Set();
-        worksRes.data?.forEach(w => w.playwright_fa?.forEach(p => pwSet.add(p)));
-        setAllPlaywrights([...pwSet].sort());
-
-        const trSet = new Set();
-        editionsRes.data?.forEach(e => e.translator_fa?.forEach(t => trSet.add(t)));
-        setAllTranslators([...trSet].sort());
-
-        const tagMap = new Map();
-        tagsRes.data?.forEach(edition => {
-          edition.edition_tags?.forEach(et => {
-            if (et.taxonomy && !tagMap.has(et.taxonomy.id)) {
-              tagMap.set(et.taxonomy.id, { id: et.taxonomy.id, label_fa: et.taxonomy.label_fa });
-            }
-          });
-        });
-        setAllTags([...tagMap.values()]);
-      } catch (err) {
-        console.error('Error loading filter options:', err);
-      }
-    };
-    loadOptions();
-  }, []);
 
   return (
     <div className="flex gap-6" dir="rtl">
@@ -119,9 +77,6 @@ export default function SearchView({ user }) {
               <FilterSidebar
                 filters={filters}
                 setFilters={setFilters}
-                playwrights={allPlaywrights}
-                translators={allTranslators}
-                tags={allTags}
                 onClearAll={() => setFilters(defaultFilters)}
                 activeCount={activeCount}
               />
