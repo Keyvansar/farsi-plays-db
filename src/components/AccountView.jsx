@@ -1,16 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { normalizeFarsi } from '../utils/textUtils';
+import { toast } from 'sonner';
 
 export default function AccountView({ user }) {
   const [displayName, setDisplayName] = useState(user?.user_metadata?.display_name || '');
   const [userRole, setUserRole] = useState('guest');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  
-  const [nameMessage, setNameMessage] = useState({ type: '', text: '' });
-  const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
-  
+
   const [isUpdatingName, setIsUpdatingName] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
@@ -45,11 +43,10 @@ export default function AccountView({ user }) {
 
   const handleUpdateName = async (e) => {
     e.preventDefault();
-    setNameMessage({ type: '', text: '' });
-    
+
     const normalizedName = normalizeFarsi(displayName);
     if (normalizedName.length < 3) {
-      setNameMessage({ type: 'error', text: 'نام باید حداقل ۳ کاراکتر باشد.' });
+      toast.error('نام باید حداقل ۳ کاراکتر باشد.');
       return;
     }
 
@@ -61,10 +58,10 @@ export default function AccountView({ user }) {
 
       if (error) throw error;
 
-      setNameMessage({ type: 'success', text: '✅ نام با موفقیت به‌روزرسانی شد.' });
+      toast.success('نام با موفقیت به‌روزرسانی شد.');
     } catch (err) {
       console.error('Name update error:', err);
-      setNameMessage({ type: 'error', text: 'خطا در به‌روزرسانی نام. لطفاً دوباره تلاش کنید.' });
+      toast.error('خطا در به‌روزرسانی نام. لطفاً دوباره تلاش کنید.');
     } finally {
       setIsUpdatingName(false);
     }
@@ -72,15 +69,14 @@ export default function AccountView({ user }) {
 
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
-    setPasswordMessage({ type: '', text: '' });
 
     if (newPassword.length < 6) {
-      setPasswordMessage({ type: 'error', text: 'رمز عبور جدید باید حداقل ۶ کاراکتر باشد.' });
+      toast.error('رمز عبور جدید باید حداقل ۶ کاراکتر باشد.');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setPasswordMessage({ type: 'error', text: 'رمز عبور و تکرار آن مطابقت ندارند.' });
+      toast.error('رمز عبور و تکرار آن مطابقت ندارند.');
       return;
     }
 
@@ -92,12 +88,12 @@ export default function AccountView({ user }) {
 
       if (error) throw error;
 
-      setPasswordMessage({ type: 'success', text: '✅ رمز عبور با موفقیت تغییر کرد.' });
+      toast.success('رمز عبور با موفقیت تغییر کرد.');
       setNewPassword('');
       setConfirmPassword('');
     } catch (err) {
       console.error('Password update error:', err);
-      setPasswordMessage({ type: 'error', text: 'خطا در تغییر رمز عبور. لطفاً دوباره تلاش کنید.' });
+      toast.error('خطا در تغییر رمز عبور. لطفاً دوباره تلاش کنید.');
     } finally {
       setIsUpdatingPassword(false);
     }
@@ -110,7 +106,7 @@ export default function AccountView({ user }) {
       {/* Profile Info Card */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h3 className="text-lg font-bold text-gray-900 mb-4">اطلاعات حساب</h3>
-        
+
         <div className="space-y-3 text-sm">
           <div className="flex justify-between py-2 border-b border-gray-100">
             <span className="text-gray-500">ایمیل:</span>
@@ -132,16 +128,6 @@ export default function AccountView({ user }) {
       {/* Display Name Update */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h3 className="text-lg font-bold text-gray-900 mb-4">✏️ تغییر نام نمایشی</h3>
-
-        {nameMessage.text && (
-          <div className={`p-3 mb-4 rounded-lg text-sm border ${
-            nameMessage.type === 'success' 
-              ? 'bg-green-50 text-green-800 border-green-200' 
-              : 'bg-red-50 text-red-800 border-red-200'
-          }`}>
-            {nameMessage.text}
-          </div>
-        )}
 
         <form onSubmit={handleUpdateName} className="space-y-4">
           <div>
@@ -169,16 +155,6 @@ export default function AccountView({ user }) {
       {/* Password Change */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h3 className="text-lg font-bold text-gray-900 mb-4">🔒 تغییر رمز عبور</h3>
-
-        {passwordMessage.text && (
-          <div className={`p-3 mb-4 rounded-lg text-sm border ${
-            passwordMessage.type === 'success' 
-              ? 'bg-green-50 text-green-800 border-green-200' 
-              : 'bg-red-50 text-red-800 border-red-200'
-          }`}>
-            {passwordMessage.text}
-          </div>
-        )}
 
         <form onSubmit={handleUpdatePassword} className="space-y-4">
           <div>

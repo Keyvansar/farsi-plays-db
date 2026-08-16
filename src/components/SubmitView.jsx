@@ -9,6 +9,7 @@ import RequiredFields from './submit/RequiredFields';
 import OptionalFields from './submit/OptionalFields';
 import DuplicateWarning from './submit/DuplicateWarning';
 import FieldError from './ui/FieldError';
+import { toast } from 'sonner';
 
 const DRAFT_KEY = 'submission_draft';
 
@@ -58,7 +59,7 @@ export default function SubmitView({ user }) {
   // ===== UI STATE =====
   const [showOptional, setShowOptional] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState({ type: '', text: '' });
+  // Removed: const [message, setMessage] = useState({ type: '', text: '' });
   const [castWarning, setCastWarning] = useState('');
 
   // ===== DUPLICATE DETECTION STATE =====
@@ -100,7 +101,7 @@ export default function SubmitView({ user }) {
       try {
         const parsed = JSON.parse(draft);
         reset({ ...getValues(), ...parsed });
-        setMessage({ type: 'info', text: '📄 پیش‌نویس قبلی بازیابی شد.' });
+        toast.info('📄 پیش‌نویس قبلی بازیابی شد.');
       } catch (e) {
         localStorage.removeItem(DRAFT_KEY);
       }
@@ -505,13 +506,12 @@ export default function SubmitView({ user }) {
   const onSubmit = async (formData) => {
     const now = Date.now();
     if (now - lastSubmitTime < 10000) {
-      setMessage({ type: 'error', text: 'لطفاً چند ثانیه صبر کنید و دوباره تلاش کنید.' });
+      toast.error('لطفاً چند ثانیه صبر کنید و دوباره تلاش کنید.');
       return;
     }
     setLastSubmitTime(now);
 
     setSubmitting(true);
-    setMessage({ type: '', text: '' });
 
     try {
       const p = buildPayload(formData);
@@ -521,14 +521,14 @@ export default function SubmitView({ user }) {
       if (isCompletingDuplicate && selectedMergeTarget) {
         if (canModerate) {
           await updateExisting(p);
-          setMessage({ type: 'success', text: '✅ اثر موجود با موفقیت تکمیل شد.' });
+          toast.success('اثر موجود با موفقیت تکمیل شد.');
         } else {
           await queueCompletionSuggestions(p);
-          setMessage({ type: 'success', text: '✅ پیشنهادهای تکمیل اثر برای بررسی ثبت شد.' });
+          toast.success('پیشنهادهای تکمیل اثر برای بررسی ثبت شد.');
         }
       } else if (canModerate) {
         await insertDirectly(p);
-        setMessage({ type: 'success', text: '✅ اثر با موفقیت ثبت و تایید شد.' });
+        toast.success('اثر با موفقیت ثبت و تایید شد.');
       } else {
         const { error: qErr } = await supabase.from('pending_submissions').insert({
           action_type: 'new_submission',
@@ -536,7 +536,7 @@ export default function SubmitView({ user }) {
           payload: p,
         });
         if (qErr) throw qErr;
-        setMessage({ type: 'success', text: '✅ اثر شما برای بررسی ثبت شد. پس از تایید ویراستاران منتشر خواهد شد.' });
+        toast.success('اثر شما برای بررسی ثبت شد. پس از تایید ویراستاران منتشر خواهد شد.');
       }
 
       // Clear draft safely (cancel pending timer + skip guard)
@@ -557,7 +557,7 @@ export default function SubmitView({ user }) {
 
     } catch (err) {
       console.error('Submission error:', err);
-      setMessage({ type: 'error', text: `خطا در ثبت اثر: ${err.message}` });
+      toast.error(`خطا در ثبت اثر: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -577,7 +577,9 @@ export default function SubmitView({ user }) {
     setIsCompletingDuplicate(false);
     setSelectedMergeTarget(null);
     setDuplicateMatches([]);
-    setMessage({ type: 'info', text: 'فرم پاک شد.' });
+
+    toast.info('فرم پاک شد.');
+
     // 5. Re-enable draft saving for future typing
     setTimeout(() => {
       skipDraftSave.current = false;
@@ -594,15 +596,7 @@ export default function SubmitView({ user }) {
             : 'شما به عنوان مهمان ثبت می‌کنید؛ اثر پس از بررسی ویراستاران منتشر خواهد شد.'}
         </p>
 
-        {/* Messages */}
-        {message.text && (
-          <div className={`p-3 mb-4 rounded-lg text-sm border ${message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
-            message.type === 'error' ? 'bg-red-50 text-red-800 border-red-200' :
-              'bg-blue-50 text-blue-800 border-blue-200'
-            }`}>
-            {message.text}
-          </div>
-        )}
+        {/* Removed the inline message block in favor of Sonner toasts */}
 
         {/* Duplicate Warning */}
         {(isCheckingDuplicate || duplicateMatches.length > 0) && (

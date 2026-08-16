@@ -1,6 +1,7 @@
 // ===== IMPORTS & DEPENDENCIES =====
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Toaster, toast } from 'sonner';
 import { supabase, initializationError } from './lib/supabase';
 import { normalizeFarsi } from './utils/textUtils';
 import LoginForm from './components/LoginForm';
@@ -79,9 +80,15 @@ function AppContent() {
       });
       if (nameError) throw nameError;
 
+      // 🚀 NEW: Trigger success toast
+      toast.success('اطلاعات با موفقیت ذخیره شد. به سامانه خوش آمدید!');
+
     } catch (err) {
       console.error('Error during profile setup:', err);
-      setProfileSetupError('خطا در ثبت اطلاعات. لطفاً دوباره تلاش کنید.');
+      const errorMsg = 'خطا در ثبت اطلاعات. لطفاً دوباره تلاش کنید.';
+      setProfileSetupError(errorMsg);
+      // 🚀 NEW: Trigger error toast
+      toast.error(errorMsg);
     } finally {
       setIsUpdatingProfile(false);
     }
@@ -94,6 +101,18 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8 font-sans" dir="rtl">
+
+      {/* 🚀 NEW: Sonner Toaster Component */}
+      {/* We pass dir="rtl" and the IRANSans font to ensure toasts render correctly */}
+      <Toaster
+        dir="rtl"
+        position="bottom-center"
+        richColors
+        closeButton
+        toastOptions={{
+          style: { fontFamily: 'IRANSans, ui-sans-serif, system-ui, sans-serif' }
+        }}
+      />
 
       {/* 🚀 MANDATORY PROFILE SETUP GATE */}
       {needsProfileSetup && (

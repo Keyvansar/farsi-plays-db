@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import Modal from '../ui/Modal';
+import { toast } from 'sonner';
 
 const DELETE_REASONS = [
   { key: 'duplicate', label: 'تکراری', icon: '📑' },
@@ -13,7 +14,6 @@ export default function DeleteConfirmModal({ edition, user, onClose, onSubmitted
   const [reasons, setReasons] = useState([]);
   const [otherReason, setOtherReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState({ type: '', text: '' });
 
   const toggleReason = (key) => {
     setReasons(prev =>
@@ -28,7 +28,6 @@ export default function DeleteConfirmModal({ edition, user, onClose, onSubmitted
 
   const handleSubmit = async () => {
     setSubmitting(true);
-    setMessage({ type: '', text: '' });
 
     try {
       const { error } = await supabase.from('pending_submissions').insert({
@@ -45,7 +44,7 @@ export default function DeleteConfirmModal({ edition, user, onClose, onSubmitted
 
       if (error) throw error;
 
-      setMessage({ type: 'success', text: '✅ پیشنهاد حذف برای بررسی ثبت شد.' });
+      toast.success('پیشنهاد حذف برای بررسی ثبت شد.');
       setTimeout(() => {
         onSubmitted?.();
         onClose();
@@ -53,7 +52,7 @@ export default function DeleteConfirmModal({ edition, user, onClose, onSubmitted
 
     } catch (err) {
       console.error('Delete suggestion error:', err);
-      setMessage({ type: 'error', text: `خطا در ثبت پیشنهاد: ${err.message}` });
+      toast.error(`خطا در ثبت پیشنهاد: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -71,15 +70,7 @@ export default function DeleteConfirmModal({ edition, user, onClose, onSubmitted
           این اثر برای حذف پیشنهاد خواهد شد و پس از بررسی توسط ویراستاران، تصمیم نهایی گرفته می‌شود.
         </p>
 
-        {/* Messages */}
-        {message.text && (
-          <div className={`p-3 rounded-lg text-sm border ${
-            message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
-            'bg-red-50 text-red-800 border-red-200'
-          }`}>
-            {message.text}
-          </div>
-        )}
+        {/* Removed inline message block in favor of Sonner toasts */}
 
         {/* Reason Checkboxes */}
         <div>
@@ -90,11 +81,10 @@ export default function DeleteConfirmModal({ edition, user, onClose, onSubmitted
             {DELETE_REASONS.map(r => (
               <label
                 key={r.key}
-                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                  reasons.includes(r.key)
+                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${reasons.includes(r.key)
                     ? 'bg-red-50 border-red-200'
                     : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
-                }`}
+                  }`}
               >
                 <input
                   type="checkbox"

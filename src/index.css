@@ -1,33 +1,51 @@
-/* ===== STYLES & DIRECTIVES (src/index.css) ===== */
 @import "tailwindcss";
 
-@layer base {
-  body {
-    @apply bg-gray-50 text-gray-900 antialiased;
-    font-feature-settings: "rlig" 1, "calt" 1;
-    direction: rtl;
-  }
+/* 1. Define the IRANSans font faces */
+/* Standardized font-family name to "IRANSans" across all weights */
+@font-face {
+  font-family: "IRANSans";
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url("./assets/fonts/IRAN_Sans_Ultra_Light.woff2") format("woff2");
+  /* Note: Added .woff2 extension here! */
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+@font-face {
+  font-family: "IRANSans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/IRANSans.woff2") format("woff2");
 }
 
-.animate-fadeIn {
-  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+@font-face {
+  font-family: "IRANSans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/IRANSansWeb_Medium.woff2") format("woff2");
 }
 
-.interactive-card {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+@font-face {
+  font-family: "IRANSans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./assets/fonts/IRANSans_Bold.woff2") format("woff2");
 }
-.interactive-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+
+/* 2. Extend Tailwind v4 Theme */
+@theme {
+  --font-sans: "IRANSans", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* 3. Global Base Styles */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  @apply font-sans text-gray-800 bg-gray-50;
 }

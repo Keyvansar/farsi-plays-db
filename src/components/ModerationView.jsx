@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { sanitizeUrl } from '../utils/textUtils';
+import { toast } from 'sonner';
 
 const TABS = [
   { key: 'all', label: 'همه', icon: '📋' },
@@ -23,7 +24,6 @@ export default function ModerationView() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all');
   const [processingIds, setProcessingIds] = useState(new Set());
-  const [message, setMessage] = useState({ type: '', text: '' });
   const [expandedId, setExpandedId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
 
@@ -41,7 +41,7 @@ export default function ModerationView() {
       setSelectedIds(new Set());
     } catch (err) {
       console.error('Fetch error:', err);
-      setMessage({ type: 'error', text: 'خطا در بارگذاری کارتابل. لطفاً دوباره تلاش کنید.' });
+      toast.error('خطا در بارگذاری کارتابل. لطفاً دوباره تلاش کنید.');
     } finally {
       setLoading(false);
     }
@@ -72,7 +72,6 @@ export default function ModerationView() {
   const bulkApprove = async (ids) => {
     if (ids.length === 0) return;
     setProcessingIds(new Set(ids));
-    setMessage({ type: '', text: '' });
     let successCount = 0;
     let errorCount = 0;
 
@@ -90,13 +89,13 @@ export default function ModerationView() {
       setSelectedIds(new Set());
 
       if (errorCount === 0) {
-        setMessage({ type: 'success', text: `✅ ${successCount} مورد با موفقیت تایید شد.` });
+        toast.success(`${successCount} مورد با موفقیت تایید شد.`);
       } else {
-        setMessage({ type: 'error', text: `⚠️ ${successCount} تایید شد، ${errorCount} خطا داشت.` });
+        toast.warning(`${successCount} تایید شد، ${errorCount} خطا داشت.`);
       }
     } catch (err) {
       console.error('Bulk approve error:', err);
-      setMessage({ type: 'error', text: 'خطا در پردازش درخواست‌ها. لطفاً دوباره تلاش کنید.' });
+      toast.error('خطا در پردازش درخواست‌ها. لطفاً دوباره تلاش کنید.');
     } finally {
       setProcessingIds(new Set());
     }
@@ -108,7 +107,6 @@ export default function ModerationView() {
     if (reason === null) return;
 
     setProcessingIds(new Set(ids));
-    setMessage({ type: '', text: '' });
     let successCount = 0;
 
     for (const id of ids) {
@@ -119,7 +117,7 @@ export default function ModerationView() {
     setSubmissions(subs => subs.filter(s => !ids.includes(s.id)));
     setSelectedIds(new Set());
     setProcessingIds(new Set());
-    setMessage({ type: 'success', text: `❌ ${successCount} مورد رد شد.` });
+    toast.success(`${successCount} مورد رد شد.`);
   };
 
   // ===== COMPREHENSIVE PAYLOAD RENDERER =====
@@ -291,11 +289,10 @@ export default function ModerationView() {
             <button
               key={tab.key}
               onClick={() => { setActiveTab(tab.key); setSelectedIds(new Set()); }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                activeTab === tab.key
+              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${activeTab === tab.key
                   ? 'bg-indigo-600 text-white'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
+                }`}
             >
               {tab.icon} {tab.label}
               {count > 0 && <span className="mr-1.5 px-1.5 py-0.5 bg-white/20 rounded text-xs">{count}</span>}
@@ -360,13 +357,6 @@ export default function ModerationView() {
               ❌ رد همه ({filtered.length})
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Messages */}
-      {message.text && (
-        <div className={`p-3 mb-4 rounded-lg text-sm border ${message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
-          {message.text}
         </div>
       )}
 

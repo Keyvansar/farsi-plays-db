@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { toast } from 'sonner';
 
 export default function ResetPasswordView() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [message, setMessage] = useState({ type: '', text: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isValidSession, setIsValidSession] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
@@ -14,13 +14,9 @@ export default function ResetPasswordView() {
     const checkSession = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
-        
+
         if (error || !session) {
           setIsValidSession(false);
-          setMessage({ 
-            type: 'error', 
-            text: 'لینک بازیابی معتبر نیست یا منقضی شده است. لطفاً دوباره درخواست بازیابی رمز عبور دهید.' 
-          });
         } else {
           setIsValidSession(true);
         }
@@ -37,15 +33,14 @@ export default function ResetPasswordView() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setMessage({ type: '', text: '' });
 
     if (newPassword.length < 6) {
-      setMessage({ type: 'error', text: 'رمز عبور باید حداقل ۶ کاراکتر باشد.' });
+      toast.error('رمز عبور باید حداقل ۶ کاراکتر باشد.');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setMessage({ type: 'error', text: 'رمز عبور و تکرار آن مطابقت ندارند.' });
+      toast.error('رمز عبور و تکرار آن مطابقت ندارند.');
       return;
     }
 
@@ -57,10 +52,7 @@ export default function ResetPasswordView() {
 
       if (error) throw error;
 
-      setMessage({ 
-        type: 'success', 
-        text: '✅ رمز عبور با موفقیت تغییر کرد. اکنون می‌توانید وارد شوید.' 
-      });
+      toast.success('رمز عبور با موفقیت تغییر کرد. در حال انتقال به صفحه ورود...');
 
       // Redirect to login after 2 seconds
       setTimeout(() => {
@@ -69,7 +61,7 @@ export default function ResetPasswordView() {
 
     } catch (err) {
       console.error('Password reset error:', err);
-      setMessage({ type: 'error', text: 'خطا در تغییر رمز عبور. لطفاً دوباره تلاش کنید.' });
+      toast.error('خطا در تغییر رمز عبور. لطفاً دوباره تلاش کنید.');
     } finally {
       setIsSubmitting(false);
     }
@@ -96,18 +88,12 @@ export default function ResetPasswordView() {
           </p>
         </div>
 
-        {message.text && (
-          <div className={`p-3 mb-4 rounded-lg text-sm border ${
-            message.type === 'success' 
-              ? 'bg-green-50 text-green-800 border-green-200' 
-              : 'bg-red-50 text-red-800 border-red-200'
-          }`}>
-            {message.text}
-          </div>
-        )}
-
         {!isValidSession ? (
-          <div className="text-center">
+          <div className="text-center space-y-4">
+            {/* Kept as a persistent inline message for broken/expired links */}
+            <div className="p-3 rounded-lg text-sm border bg-red-50 text-red-800 border-red-200">
+              لینک بازیابی معتبر نیست یا منقضی شده است. لطفاً دوباره درخواست بازیابی رمز عبور دهید.
+            </div>
             <button
               onClick={() => window.location.href = '/login'}
               className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors"

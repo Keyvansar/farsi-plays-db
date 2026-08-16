@@ -8,6 +8,7 @@ import OptionalFields from '../submit/OptionalFields';
 import Modal from '../ui/Modal';
 import { useCastTotal } from '../../hooks/useCastTotal';
 import FieldError from '../ui/FieldError';
+import { toast } from 'sonner';
 
 // ===== FIELD LABELS =====
 const FIELD_LABELS = {
@@ -39,7 +40,7 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [changes, setChanges] = useState([]);
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState({ type: '', text: '' });
+  // Removed: const [message, setMessage] = useState({ type: '', text: '' });
   const [showOptional, setShowOptional] = useState(true);
 
   // Convert edition data to form format
@@ -143,7 +144,7 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
   // ===== UNDO =====
   const handleUndoAll = () => {
     reset(originalValues);
-    setMessage({ type: 'info', text: '✅ همه تغییرات برگردانده شد.' });
+    toast.info('همه تغییرات برگردانده شد.');
   };
 
   const handleUndoField = (fieldName) => {
@@ -154,18 +155,16 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
   const onPreviewChanges = (formData) => {
     const diffs = calculateChanges(formData);
     if (diffs.length === 0) {
-      setMessage({ type: 'info', text: 'هیچ تغییری ثبت نشده است.' });
+      toast.info('هیچ تغییری ثبت نشده است.');
       return;
     }
     setChanges(diffs);
     setShowConfirmation(true);
-    setMessage({ type: '', text: '' });
   };
 
   // ===== SUBMIT CHANGES (DIRECT APPLY) =====
   const onConfirmSubmit = async () => {
     setSubmitting(true);
-    setMessage({ type: '', text: '' });
 
     try {
       for (const change of changes) {
@@ -319,16 +318,18 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
         }
       }
 
-      setMessage({ type: 'success', text: `✅ ${changes.length} تغییر مستقیماً اعمال شد.` });
+      toast.success(`${changes.length} تغییر مستقیماً اعمال شد.`);
+
+      // BUG FIX: Removed references to undefined `skipDraftSave` and `DRAFT_KEY` 
+      // which would have crashed the app upon successful edit.
       setTimeout(() => {
         reset();
         setShowOptional(false);
-        skipDraftSave.current = false;
-        localStorage.removeItem(DRAFT_KEY); // Also remove here to be safe
+        // Optional: onClose(); // You may want to close the modal automatically after success
       }, 1500);
 
     } catch (err) {
-      setMessage({ type: 'error', text: `خطا در اعمال تغییرات: ${err.message}` });
+      toast.error(`خطا در اعمال تغییرات: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -355,15 +356,7 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
         ) : null
       }
     >
-      {/* Messages */}
-      {message.text && (
-        <div className={`mx-5 mt-4 p-3 rounded-lg text-sm border ${message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
-          message.type === 'error' ? 'bg-red-50 text-red-800 border-red-200' :
-            'bg-blue-50 text-blue-800 border-blue-200'
-          }`}>
-          {message.text}
-        </div>
-      )}
+      {/* Removed inline message block in favor of Sonner toasts */}
 
       {/* ===== CONFIRMATION STEP ===== */}
       {showConfirmation ? (
