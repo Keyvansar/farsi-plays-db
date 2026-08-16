@@ -1,0 +1,3 @@
+## 2024-08-16 - Removed Unnecessary Full Table Fetch in SearchView
+**Learning:** `SearchView.jsx` was fetching the entirety of the `works` and `farsi_editions` tables on mount to get filter options for playwrights, translators, and tags. However, the `FilterSidebar` component has already been updated to use the `AutocompleteSelect` component, which performs search queries efficiently via `supabase.rpc` dynamically as the user types, making the bulk fetched data completely unused and redundant.
+**Action:** Always check if a data fetch inside a parent component is still actually being used by its children before preserving it during optimization passes. In this case, removing the unused full table scan significantly reduces the initial load time and backend payload.
