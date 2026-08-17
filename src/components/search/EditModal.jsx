@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { supabase } from '../../lib/supabase';
 import { editionSchema } from '../../schemas/editionSchema';
 import RequiredFields from '../submit/RequiredFields';
 import OptionalFields from '../submit/OptionalFields';
@@ -9,6 +8,10 @@ import Modal from '../ui/Modal';
 import { useCastTotal } from '../../hooks/useCastTotal';
 import FieldError from '../ui/FieldError';
 import { toast } from 'sonner';
+import {
+  linkEditionToWork,
+  searchWorksForLinking,
+} from '../submit/submitActions';
 
 // ===== FIELD LABELS =====
 const FIELD_LABELS = {
@@ -21,6 +24,7 @@ const FIELD_LABELS = {
   is_in_collection: 'بخشی از مجموعه',
   collection_title: 'عنوان مجموعه',
   original_title: 'عنوان اصلی',
+  alternative_titles: 'نام‌های دیگر',
   publication_year_solar: 'سال شمسی',
   publication_year_gregorian: 'سال میلادی',
   original_year: 'سال نگارش',
@@ -40,8 +44,14 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [changes, setChanges] = useState([]);
   const [submitting, setSubmitting] = useState(false);
-  // Removed: const [message, setMessage] = useState({ type: '', text: '' });
   const [showOptional, setShowOptional] = useState(true);
+
+  // 🆕 Work linking state
+  const [showLinkSection, setShowLinkSection] = useState(false);
+  const [linkSearchTerm, setLinkSearchTerm] = useState('');
+  const [linkSearchResults, setLinkSearchResults] = useState([]);
+  const [linkSearching, setLinkSearching] = useState(false);
+  const [linking, setLinking] = useState(false);
 
   // Convert edition data to form format
   const editionToForm = (ed) => {
@@ -59,6 +69,7 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
       is_in_collection: ed.is_in_collection || false,
       collection_title: ed.collection_title || '',
       original_title: work.original_title || '',
+      alternative_titles: Array.isArray(work.alternative_titles) ? work.alternative_titles.join('، ') : (work.alternative_titles || ''),
       publication_year_solar: ed.publication_year_solar?.toString() || '',
       publication_year_gregorian: ed.publication_year_gregorian?.toString() || '',
       original_year: ed.original_year?.toString() || '',
@@ -84,7 +95,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
 
   const { handleSubmit, reset, watch, setValue, getValues, control } = methods;
 
-  // Auto-calculate cast total (shared hook)
   useCastTotal(control, setValue);
 
   // ===== CALCULATE CHANGES =====
@@ -151,6 +161,40 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
     setValue(fieldName, originalValues[fieldName], { shouldDirty: true });
   };
 
+  // 🆕 Search works for linking
+  const handleLinkSearch = async () => {
+    if (!linkSearchTerm.trim()) return;
+    setLinkSearching(true);
+    try {
+      const results = await searchWorksForLinking(linkSearchTerm.trim());
+      const filtered = results.filter(r => r.id !== edition.id);
+      setLinkSearchResults(filtered);
+    } catch (err) {
+      console.error('Link search error:', err);
+      toast.error('خطا در جستجوی آثار.');
+    } finally {
+      setLinkSearching(false);
+    }
+  };
+
+  // 🆕 Link edition to a different work
+  const handleLinkToWork = async (targetWorkId, targetTitle) => {
+    setLinking(true);
+    try {
+      await linkEditionToWork(edition.id, targetWorkId);
+      toast.success(`نسخه به «${targetTitle}» متصل شد.`);
+      setShowLinkSection(false);
+      setLinkSearchResults([]);
+      setLinkSearchTerm('');
+      onSubmitted?.();
+    } catch (err) {
+      console.error('Link error:', err);
+      toast.error(`خطا در اتصال: ${err.message}`);
+    } finally {
+      setLinking(false);
+    }
+  };
+
   // ===== PREVIEW CHANGES =====
   const onPreviewChanges = (formData) => {
     const diffs = calculateChanges(formData);
@@ -162,14 +206,14 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
     setShowConfirmation(true);
   };
 
-  // ===== SUBMIT CHANGES (DIRECT APPLY) =====
+  // ===== SUBMIT CHANGES =====
   const onConfirmSubmit = async () => {
     setSubmitting(true);
 
     try {
-      for (const change of changes) {
+      const { supabase } = await import('../../lib/supabase');
 
-        // ===== TAGS =====
+      for (const change of changes) {
         if (change.field === 'tags') {
           if (change.addedTags?.length > 0) {
             for (const tagLabel of change.addedTags) {
@@ -223,7 +267,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
             changed_by: user?.id || null,
           });
 
-          // ===== EXTERNAL REFERENCES =====
         } else if (change.field === 'external_references') {
           if (change.addedRefs?.length > 0) {
             const formData = getValues();
@@ -256,12 +299,11 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
             changed_by: user?.id || null,
           });
 
-          // ===== REGULAR FIELDS =====
         } else {
-          const worksTableFields = ['playwright_fa', 'original_title', 'source_language'];
+          const worksTableFields = ['playwright_fa', 'original_title', 'source_language', 'alternative_titles'];
           const isWorksField = worksTableFields.includes(change.field);
 
-          const arrayFields = ['translator_fa', 'playwright_fa'];
+          const arrayFields = ['translator_fa', 'playwright_fa', 'alternative_titles'];
           const intFields = ['page_count', 'cast_men', 'cast_women', 'cast_nonspecific', 'cast_total', 'publication_year_solar', 'publication_year_gregorian', 'original_year'];
           const boolFields = ['is_in_collection', 'is_verified'];
 
@@ -320,12 +362,10 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
 
       toast.success(`${changes.length} تغییر مستقیماً اعمال شد.`);
 
-      // BUG FIX: Removed references to undefined `skipDraftSave` and `DRAFT_KEY` 
-      // which would have crashed the app upon successful edit.
       setTimeout(() => {
         reset();
         setShowOptional(false);
-        // Optional: onClose(); // You may want to close the modal automatically after success
+        onClose();
       }, 1500);
 
     } catch (err) {
@@ -356,8 +396,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
         ) : null
       }
     >
-      {/* Removed inline message block in favor of Sonner toasts */}
-
       {/* ===== CONFIRMATION STEP ===== */}
       {showConfirmation ? (
         <div className="p-6">
@@ -459,6 +497,109 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
                 placeholder="خلاصه‌ای از داستان..."
               />
               <FieldError id="synopsis-error" message={methods.formState.errors.synopsis?.message} />
+            </div>
+
+            {/* 🆕 WORK LINKING SECTION */}
+            <div className="border-t border-gray-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setShowLinkSection(!showLinkSection)}
+                className="w-full py-2 px-4 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 transition-all flex items-center justify-between"
+              >
+                <span>📚 اتصال به نسخه‌های دیگر</span>
+                <span>{showLinkSection ? '▲' : '▼'}</span>
+              </button>
+
+              {showLinkSection && (
+                <div className="mt-3 p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+                  {/* Current work info */}
+                  <div className="p-3 bg-white rounded-lg border border-gray-100">
+                    <p className="text-xs text-gray-500 mb-1">اثر فعلی:</p>
+                    <p className="text-sm font-bold text-gray-800">
+                      {edition.works?.original_title || edition.title_fa}
+                      {edition.works?.playwright_fa?.length > 0 && (
+                        <span className="font-normal text-gray-500">
+                          {' '}— {edition.works.playwright_fa.join('، ')}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+
+                  {/* Search for another work */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                      جستجوی اثر برای اتصال:
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={linkSearchTerm}
+                        onChange={(e) => setLinkSearchTerm(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleLinkSearch();
+                          }
+                        }}
+                        className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:border-indigo-500 focus:ring-0"
+                        placeholder="عنوان اثر یا نام نویسنده..."
+                      />
+                      <button
+                        type="button"
+                        onClick={handleLinkSearch}
+                        disabled={linkSearching || !linkSearchTerm.trim()}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        {linkSearching ? '⏳' : '🔍'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Search results */}
+                  {linkSearchResults.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-gray-500">نتایج یافت شده:</p>
+                      {linkSearchResults.map(result => (
+                        <div
+                          key={result.id}
+                          className="p-3 bg-white rounded-lg border border-gray-100 hover:border-indigo-300 transition-colors"
+                        >
+                          <div className="flex justify-between items-start gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-gray-800">
+                                📖 {result.title_fa}
+                              </p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {result.works?.playwright_fa?.length > 0 && (
+                                  <span>✍️ {result.works.playwright_fa.join('، ')} | </span>
+                                )}
+                                {result.works?.original_title && (
+                                  <span dir="ltr">{result.works.original_title} | </span>
+                                )}
+                                {result.publisher && <span>🏢 {result.publisher}</span>}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleLinkToWork(result.works?.id, result.title_fa)}
+                              disabled={linking}
+                              className="shrink-0 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 disabled:opacity-50"
+                            >
+                              {linking ? '⏳' : '🔗 اتصال'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {linkSearchResults.length === 0 && linkSearchTerm.trim() && !linkSearching && (
+                    <p className="text-xs text-gray-400 text-center py-2">
+                      اثری یافت نشد.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Submit */}
