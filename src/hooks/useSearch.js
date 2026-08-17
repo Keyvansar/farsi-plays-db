@@ -186,7 +186,7 @@ export function useSearch() {
   }, [searchTerm, searchScope, filters, initialized]);
 
   // Count active filters
-  const activeCount = Object.entries(filters).filter(([key, val]) => {
+  const activeCount = Object.entries(filters).filter(([_key, val]) => {
     if (Array.isArray(val)) return val.length > 0;
     if (typeof val === 'boolean') return val;
     if (typeof val === 'string') return val !== '' && val !== 'all';

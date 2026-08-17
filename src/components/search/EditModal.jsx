@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { supabase } from '../../lib/supabase';
@@ -36,7 +36,7 @@ const FIELD_LABELS = {
 };
 
 // ===== MAIN COMPONENT =====
-export default function EditModal({ edition, user, onClose, onSubmitted }) {
+export default function EditModal({ edition, user, onClose, _onSubmitted }) {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [changes, setChanges] = useState([]);
   const [submitting, setSubmitting] = useState(false);

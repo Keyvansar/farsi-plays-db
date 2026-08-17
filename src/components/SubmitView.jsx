@@ -102,7 +102,7 @@ export default function SubmitView({ user }) {
         const parsed = JSON.parse(draft);
         reset({ ...getValues(), ...parsed });
         toast.info('📄 پیش‌نویس قبلی بازیابی شد.');
-      } catch (e) {
+      } catch {
         localStorage.removeItem(DRAFT_KEY);
       }
     }
@@ -191,7 +191,7 @@ export default function SubmitView({ user }) {
 
     if (checked && selectedMergeTarget) {
       const ed = selectedMergeTarget;
-      const work = ed.works || {};
+
 
       const editionTags = ed.edition_tags?.map(et => et.taxonomy?.label_fa).filter(Boolean) || [];
       const editionRefs = ed.external_references?.filter(r => r.url).map(r => ({
@@ -439,7 +439,7 @@ export default function SubmitView({ user }) {
     const ed = selectedMergeTarget;
 
     const getCurrentValue = (field) => {
-      const work = ed.works || {};
+
       switch (field) {
         case 'title_fa': return ed.title_fa || '';
         case 'translator_fa': return Array.isArray(ed.translator_fa) ? ed.translator_fa.join('، ') : (ed.translator_fa || '');

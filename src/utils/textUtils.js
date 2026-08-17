@@ -50,7 +50,7 @@ export const sanitizeUrl = (urlString) => {
       return url.href;
     }
     return 'about:blank';
-  } catch (err) {
+  } catch {
     // If URL parsing fails, we treat it as an unsafe/invalid URL
     return 'about:blank';
   }
