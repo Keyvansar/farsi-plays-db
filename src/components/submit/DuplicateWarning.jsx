@@ -7,7 +7,8 @@ export default function DuplicateWarning({
   onSelect,
   isChecking = false,
   isCompleting = false,
-  onChange,
+  isNewEdition = false, // 🆕
+  onChange, // 🆕 (mode) => void, mode: 'complete' | 'new_edition' | null
 }) {
   // Loading state while checking for duplicates
   if (isChecking) {
@@ -20,6 +21,13 @@ export default function DuplicateWarning({
 
   // Nothing to show if no matches
   if (!matches || matches.length === 0) return null;
+
+  // Determine current mode for radio buttons
+  const currentMode = isCompleting ? 'complete' : isNewEdition ? 'new_edition' : null;
+
+  const handleModeChange = (mode) => {
+    onChange(mode);
+  };
 
   return (
     <div className="mb-6 bg-amber-50 border-2 border-amber-300 rounded-xl p-5">
@@ -51,11 +59,10 @@ export default function DuplicateWarning({
               key={match.id}
               type="button"
               onClick={() => onSelect(isSelected ? null : match)}
-              className={`w-full text-right p-4 rounded-xl border-2 transition-all ${
-                isSelected
+              className={`w-full text-right p-4 rounded-xl border-2 transition-all ${isSelected
                   ? 'bg-amber-100 border-amber-500 shadow-sm'
                   : 'bg-white border-amber-200 hover:border-amber-400'
-              }`}
+                }`}
             >
               <div className="flex justify-between items-start gap-3">
                 <div className="min-w-0">
@@ -102,11 +109,10 @@ export default function DuplicateWarning({
 
                 {/* Selection Indicator */}
                 <span
-                  className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-bold ${
-                    isSelected
+                  className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-bold ${isSelected
                       ? 'bg-amber-500 border-amber-500 text-white'
                       : 'border-gray-300 text-transparent'
-                  }`}
+                    }`}
                 >
                   ✓
                 </span>
@@ -116,27 +122,59 @@ export default function DuplicateWarning({
         })}
       </div>
 
-      {/* Complete-this-record checkbox (appears when a match is selected) */}
+      {/* 🆕 Edition Mode Selection (appears when a match is selected) */}
       {selectedMatch && (
-        <label className="flex items-center gap-3 mt-4 p-3 bg-white border border-amber-300 rounded-xl cursor-pointer hover:bg-amber-100 transition-colors">
-          <input
-            type="checkbox"
-            checked={isCompleting}
-            onChange={(e) => onChange(e.target.checked)}
-            className="w-5 h-5 rounded text-amber-600 focus:ring-amber-500"
-          />
-          <span className="text-sm font-semibold text-amber-900">
-            می‌خواهم این اثر را تکمیل کنم (به جای ثبت اثر جدید، اطلاعات ناقص آن را تکمیل می‌کنم)
-          </span>
-        </label>
-      )}
+        <div className="mt-4 p-4 bg-white border border-amber-300 rounded-xl space-y-3">
+          <p className="text-sm font-bold text-amber-900 mb-2">
+            چه کاری می‌خواهید انجام دهید؟
+          </p>
 
-      {/* Helper note when completing */}
-      {isCompleting && selectedMatch && (
-        <p className="mt-3 text-xs text-amber-800 bg-amber-100 p-3 rounded-lg leading-relaxed">
-          💡 فیلدهایی که قبلاً تکمیل شده‌اند قفل (خاکستری) می‌شوند و فقط فیلدهای خالی قابل
-          ویرایش هستند. برچسب‌ها و لینک‌های موجود نیز به فرم اضافه می‌شوند.
-        </p>
+          {/* Option 1: Complete existing record */}
+          <label className="flex items-start gap-3 cursor-pointer hover:bg-amber-50 p-2.5 rounded-lg transition-colors">
+            <input
+              type="radio"
+              name="editionMode"
+              checked={currentMode === 'complete'}
+              onChange={() => handleModeChange('complete')}
+              className="w-5 h-5 mt-0.5 text-amber-600 focus:ring-amber-500"
+            />
+            <span className="text-sm text-amber-900">
+              <strong>تکمیل رکورد:</strong> فیلدهای خالی اثر موجود را تکمیل می‌کنم.
+              فیلدهای پُر شده قفل می‌شوند و فقط فیلدهای خالی قابل ویرایش هستند.
+            </span>
+          </label>
+
+          {/* Option 2: Register as new edition */}
+          <label className="flex items-start gap-3 cursor-pointer hover:bg-amber-50 p-2.5 rounded-lg transition-colors">
+            <input
+              type="radio"
+              name="editionMode"
+              checked={currentMode === 'new_edition'}
+              onChange={() => handleModeChange('new_edition')}
+              className="w-5 h-5 mt-0.5 text-amber-600 focus:ring-amber-500"
+            />
+            <span className="text-sm text-amber-900">
+              <strong>ثبت نسخه جدید:</strong> این ترجمه یا چاپ دیگری از همین اثر است
+              و باید به‌عنوان یک نسخه جداگانه ثبت شود.
+            </span>
+          </label>
+
+          {/* Helper note for complete mode */}
+          {currentMode === 'complete' && (
+            <p className="mt-2 text-xs text-amber-800 bg-amber-100 p-3 rounded-lg leading-relaxed">
+              💡 فیلدهایی که قبلاً تکمیل شده‌اند قفل (خاکستری) می‌شوند و فقط فیلدهای خالی قابل
+              ویرایش هستند. برچسب‌ها و لینک‌های موجود نیز به فرم اضافه می‌شوند.
+            </p>
+          )}
+
+          {/* Helper note for new edition mode */}
+          {currentMode === 'new_edition' && (
+            <p className="mt-2 text-xs text-amber-800 bg-amber-100 p-3 rounded-lg leading-relaxed">
+              💡 اطلاعات نویسنده و زبان اصلی از اثر موجود کپی می‌شود. شما فقط اطلاعات نسخه
+              جدید (مترجم، ناشر، سال، شابک و...) را وارد می‌کنید.
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

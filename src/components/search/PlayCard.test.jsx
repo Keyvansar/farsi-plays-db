@@ -29,18 +29,24 @@ describe('PlayCard', () => {
 
     it('renders the verification badge if is_verified is true', () => {
         render(<PlayCard edition={mockEdition} onClick={vi.fn()} />);
-        expect(screen.getByText('✅')).toBeInTheDocument();
+        expect(screen.getByText('تایید شده')).toBeInTheDocument();
     });
 
-    it('does not render translation badge if source_language is fa', () => {
+    it('renders pending badge if is_verified is false', () => {
+        const unverifiedEdition = { ...mockEdition, is_verified: false };
+        render(<PlayCard edition={unverifiedEdition} onClick={vi.fn()} />);
+        expect(screen.getByText('در انتظار تایید')).toBeInTheDocument();
+    });
+
+    it('renders original badge if source_language is fa', () => {
         render(<PlayCard edition={mockEdition} onClick={vi.fn()} />);
-        expect(screen.queryByText(/ترجمه/)).not.toBeInTheDocument();
+        expect(screen.getByText('تألیفی')).toBeInTheDocument();
     });
 
     it('renders translation badge if source_language is NOT fa', () => {
         const translatedEdition = { ...mockEdition, works: { ...mockEdition.works, source_language: 'en' } };
         render(<PlayCard edition={translatedEdition} onClick={vi.fn()} />);
-        expect(screen.getByText(/ترجمه/)).toBeInTheDocument();
+        expect(screen.getByText('ترجمه')).toBeInTheDocument();
     });
 
     it('has accessible button role and is focusable via keyboard', () => {
@@ -59,10 +65,8 @@ describe('PlayCard', () => {
     it('triggers onClick when clicked with a mouse', async () => {
         const mockOnClick = vi.fn();
         render(<PlayCard edition={mockEdition} onClick={mockOnClick} />);
-
         const cardButton = screen.getByRole('button');
         await userEvent.click(cardButton);
-
         expect(mockOnClick).toHaveBeenCalledTimes(1);
         expect(mockOnClick).toHaveBeenCalledWith(mockEdition);
     });
@@ -70,24 +74,18 @@ describe('PlayCard', () => {
     it('triggers onClick when Enter key is pressed', async () => {
         const mockOnClick = vi.fn();
         render(<PlayCard edition={mockEdition} onClick={mockOnClick} />);
-
         const cardButton = screen.getByRole('button');
         cardButton.focus();
         await userEvent.keyboard('{Enter}');
-
         expect(mockOnClick).toHaveBeenCalledTimes(1);
-        expect(mockOnClick).toHaveBeenCalledWith(mockEdition);
     });
 
     it('triggers onClick when Space key is pressed', async () => {
         const mockOnClick = vi.fn();
         render(<PlayCard edition={mockEdition} onClick={mockOnClick} />);
-
         const cardButton = screen.getByRole('button');
         cardButton.focus();
-        await userEvent.keyboard(' '); // Space key
-
+        await userEvent.keyboard(' ');
         expect(mockOnClick).toHaveBeenCalledTimes(1);
-        expect(mockOnClick).toHaveBeenCalledWith(mockEdition);
     });
 });

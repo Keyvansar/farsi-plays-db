@@ -54,6 +54,14 @@ describe('editionSchema', () => {
             const result = editionSchema.safeParse(nativePlay);
             expect(result.success).toBe(true);
         });
+        // در src/schemas/editionSchema.test.js، داخل describe('editionSchema') اضافه شود:
+
+        it('accepts alternative_titles as optional field', () => {
+            const withAltTitles = { ...validPersianPlay, alternative_titles: 'ادیپوس شهریار، اودیپ' };
+            const result = editionSchema.safeParse(withAltTitles);
+            expect(result.success).toBe(true);
+            expect(result.data.alternative_titles).toBe('ادیپوس شهریار، اودیپ');
+        });
     });
 
     it('validates external_references URL format', () => {

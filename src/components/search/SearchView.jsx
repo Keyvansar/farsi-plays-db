@@ -106,6 +106,8 @@ export default function SearchView({ user }) {
           onSuggest={(ed) => { setEditTarget(ed); setEditMode('suggest'); }}
           onFlag={(ed) => { setEditTarget(ed); setEditMode('flag'); }}
           onDelete={(ed) => setDeleteTarget(ed)}
+          // 🆕 NEW: Switch to another edition of the same work
+          onSwitchEdition={(ed) => setSelectedEdition(ed)}
         />
       )}
 

@@ -10,6 +10,7 @@ export const editionSchema = z.object({
   is_in_collection: z.boolean().default(false),
   collection_title: z.string().optional().default(''),
   original_title: z.string().optional().default(''),
+  alternative_titles: z.string().optional().default(''), // 🆕 نام‌های دیگر
   publication_year_solar: z.string().optional().default(''),
   publication_year_gregorian: z.string().optional().default(''),
   original_year: z.string().optional().default(''),

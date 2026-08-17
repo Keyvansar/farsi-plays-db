@@ -151,11 +151,13 @@ export function useSearch() {
         translator_fa: row.translator_fa,
         is_verified: row.is_verified,
         flag_count: row.flag_count,
+        work_edition_count: row.work_edition_count,  // 🆕 NEW FIELD
         works: {
           id: row.work_id,
           playwright_fa: row.work_playwright_fa,
           original_title: row.work_original_title,
           source_language: row.work_source_language,
+          alternative_titles: row.work_alternative_titles,  // 🆕 NEW FIELD
         },
         edition_tags: row.edition_tags || [],
         external_references: row.external_references || [],

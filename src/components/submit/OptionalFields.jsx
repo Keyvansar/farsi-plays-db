@@ -111,6 +111,27 @@ export default function OptionalFields({ castWarning = '', lockedFields = {} }) 
         <FieldError id="original_title-error" message={errors.original_title?.message} />
       </div>
 
+      {/* ===== 🆕 Alternative Titles ===== */}
+      <div>
+        <label htmlFor="alternative_titles" className="block text-sm font-semibold text-gray-800 mb-1.5">
+          نام‌های دیگر (معادل‌ها و ضبط‌های مختلف)
+        </label>
+        <input
+          id="alternative_titles"
+          type="text"
+          {...register('alternative_titles')}
+          disabled={isLocked('alternative_titles')}
+          aria-invalid={!!errors.alternative_titles}
+          aria-describedby="alternative_titles-error"
+          className={`${inputClass} ${isLocked('alternative_titles') ? lockedClass : ''}`}
+          placeholder="مثال: ادیپوس شهریار، اودیپ شهریار"
+        />
+        <FieldError id="alternative_titles-error" message={errors.alternative_titles?.message} />
+        <p className="text-xs text-gray-400 mt-1.5">
+          نام‌های جایگزین یا املای‌های مختلف را با کاما (،) جدا کنید. این نام‌ها در جستجو نیز لحاظ می‌شوند.
+        </p>
+      </div>
+
       {/* ===== Years ===== */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
