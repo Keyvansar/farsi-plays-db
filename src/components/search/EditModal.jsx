@@ -183,10 +183,10 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
     try {
       await linkEditionToWork(edition.id, targetWorkId);
       toast.success(`نسخه به «${targetTitle}» متصل شد.`);
-      setShowLinkSection(false);
-      setLinkSearchResults([]);
-      setLinkSearchTerm('');
+
+      // 🛛 FIX: Refresh parent list, then close modal (data is now stale)
       onSubmitted?.();
+      onClose();
     } catch (err) {
       console.error('Link error:', err);
       toast.error(`خطا در اتصال: ${err.message}`);
