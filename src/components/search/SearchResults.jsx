@@ -2,7 +2,8 @@ import React from 'react';
 import PlayCard from './PlayCard';
 import SearchSkeleton from './SearchSkeleton';
 
-export default function SearchResults({ results, loading, onCardClick }) {
+// Memoized to prevent re-renders during rapid parent state changes (e.g., search keystrokes)
+const SearchResults = React.memo(function SearchResults({ results, loading, onCardClick }) {
   // Skeleton loaders while fetching
   if (loading) {
     return <SearchSkeleton count={5} />;
@@ -28,9 +29,11 @@ export default function SearchResults({ results, loading, onCardClick }) {
         <PlayCard
           key={edition.id}
           edition={edition}
-          onClick={() => onCardClick(edition)}
+          onClick={onCardClick}
         />
       ))}
     </div>
   );
-}
+});
+
+export default SearchResults;

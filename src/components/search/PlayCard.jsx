@@ -1,6 +1,8 @@
+import React from 'react';
 import { joinNamesFromArray } from '../../utils/textUtils';
 
-export default function PlayCard({ edition, onClick }) {
+// Memoized to prevent re-renders during rapid parent state changes (e.g., search keystrokes)
+const PlayCard = React.memo(function PlayCard({ edition, onClick }) {
   const work = edition.works;
   const tags = edition.edition_tags?.map(et => et.taxonomy?.label_fa).filter(Boolean) || [];
 
@@ -11,11 +13,15 @@ export default function PlayCard({ edition, onClick }) {
     }
   };
 
+  const handleClick = React.useCallback(() => {
+    onClick(edition);
+  }, [edition, onClick]);
+
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={() => onClick(edition)}
+      onClick={handleClick}
       onKeyDown={handleKeyDown}
       aria-label={`نمایش جزئیات نمایشنامه ${edition.title_fa}`}
       className="bg-white border border-gray-200 rounded-xl p-5 cursor-pointer hover:shadow-md hover:border-indigo-200 focus-visible:ring-2 focus-visible:ring-indigo-500 focus:outline-none transition-all"
@@ -48,4 +54,6 @@ export default function PlayCard({ edition, onClick }) {
       )}
     </div>
   );
-}
+});
+
+export default PlayCard;

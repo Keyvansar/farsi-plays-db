@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { Toaster } from 'sonner';
 import userEvent from '@testing-library/user-event';
 import LoginForm from './LoginForm';
 
@@ -30,7 +31,7 @@ describe('LoginForm', () => {
     });
 
     it('renders heading, inputs and submit button', () => {
-        render(<LoginForm />);
+        render(<><Toaster /><LoginForm /></>);
         expect(screen.getByText('ورود همکاران')).toBeInTheDocument();
 
         // Querying by placeholder since the component doesn't use <label> tags
@@ -41,7 +42,7 @@ describe('LoginForm', () => {
 
     it('calls signInWithPassword with correct credentials on valid submit', async () => {
         supabase.auth.signInWithPassword.mockResolvedValue({ data: {}, error: null });
-        render(<LoginForm />);
+        render(<><Toaster /><LoginForm /></>);
 
         await userEvent.type(screen.getByPlaceholderText('ایمیل'), 'test@example.com');
         await userEvent.type(screen.getByPlaceholderText('رمز عبور'), 'password123');
@@ -59,7 +60,7 @@ describe('LoginForm', () => {
 
     it('navigates to /submit on successful login', async () => {
         supabase.auth.signInWithPassword.mockResolvedValue({ data: {}, error: null });
-        render(<LoginForm />);
+        render(<><Toaster /><LoginForm /></>);
 
         await userEvent.type(screen.getByPlaceholderText('ایمیل'), 'test@example.com');
         await userEvent.type(screen.getByPlaceholderText('رمز عبور'), 'password123');
@@ -76,7 +77,7 @@ describe('LoginForm', () => {
             data: null,
             error: { message: 'Invalid login credentials' }
         });
-        render(<LoginForm />);
+        render(<><Toaster /><LoginForm /></>);
 
         await userEvent.type(screen.getByPlaceholderText('ایمیل'), 'test@example.com');
         await userEvent.type(screen.getByPlaceholderText('رمز عبور'), 'wrongpassword');
@@ -93,7 +94,7 @@ describe('LoginForm', () => {
             data: null,
             error: { message: 'Network error' }
         });
-        render(<LoginForm />);
+        render(<><Toaster /><LoginForm /></>);
 
         await userEvent.type(screen.getByPlaceholderText('ایمیل'), 'test@example.com');
         await userEvent.type(screen.getByPlaceholderText('رمز عبور'), 'password123');
