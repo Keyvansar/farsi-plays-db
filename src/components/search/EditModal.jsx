@@ -5,6 +5,7 @@ import { editionSchema } from '../../schemas/editionSchema';
 import RequiredFields from '../submit/RequiredFields';
 import OptionalFields from '../submit/OptionalFields';
 import Modal from '../ui/Modal';
+import { supabase } from '../../lib/supabase';  // 🆕 static import
 import { useCastTotal } from '../../hooks/useCastTotal';
 import FieldError from '../ui/FieldError';
 import { toast } from 'sonner';
@@ -211,7 +212,6 @@ export default function EditModal({ edition, user, onClose, onSubmitted }) {
     setSubmitting(true);
 
     try {
-      const { supabase } = await import('../../lib/supabase');
 
       for (const change of changes) {
         if (change.field === 'tags') {

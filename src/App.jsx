@@ -1,16 +1,31 @@
 // ===== IMPORTS & DEPENDENCIES =====
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Toaster, toast } from 'sonner';
 import { supabase, initializationError } from './lib/supabase';
 import { normalizeFarsi } from './utils/textUtils';
-import LoginForm from './components/LoginForm';
-import SearchView from './components/search/SearchView';
-import SubmitView from './components/SubmitView';
-import ModerationView from './components/ModerationView';
-import AccountView from './components/AccountView';
-import ResetPasswordView from './components/ResetPasswordView';
 import ErrorBoundary from './components/ui/ErrorBoundary';
+
+
+// ===== 🚀 LAZY IMPORTS (loaded on demand) =====
+const SearchView = lazy(() => import('./components/search/SearchView'));  // 🆕
+const SubmitView = lazy(() => import('./components/SubmitView'));
+const ModerationView = lazy(() => import('./components/ModerationView'));
+const AccountView = lazy(() => import('./components/AccountView'));
+const ResetPasswordView = lazy(() => import('./components/ResetPasswordView'));
+const LoginForm = lazy(() => import('./components/LoginForm'));
+
+// ===== ROUTE LOADING FALLBACK =====
+function RouteLoader() {
+  return (
+    <div className="flex items-center justify-center py-20">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p className="text-sm text-gray-500">در حال بارگذاری...</p>
+      </div>
+    </div>
+  );
+}
 
 // ===== MAIN CONTENT COMPONENT =====
 function AppContent() {
@@ -80,14 +95,12 @@ function AppContent() {
       });
       if (nameError) throw nameError;
 
-      // 🚀 NEW: Trigger success toast
       toast.success('اطلاعات با موفقیت ذخیره شد. به سامانه خوش آمدید!');
 
     } catch (err) {
       console.error('Error during profile setup:', err);
       const errorMsg = 'خطا در ثبت اطلاعات. لطفاً دوباره تلاش کنید.';
       setProfileSetupError(errorMsg);
-      // 🚀 NEW: Trigger error toast
       toast.error(errorMsg);
     } finally {
       setIsUpdatingProfile(false);
@@ -102,8 +115,6 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8 font-sans" dir="rtl">
 
-      {/* 🚀 NEW: Sonner Toaster Component */}
-      {/* We pass dir="rtl" and the IRANSans font to ensure toasts render correctly */}
       <Toaster
         dir="rtl"
         position="bottom-center"
@@ -261,15 +272,17 @@ function AppContent() {
           </div>
         )}
 
-        {/* ROUTING LOGIC */}
-        <Routes>
-          <Route path="/" element={<ErrorBoundary><SearchView user={user} /></ErrorBoundary>} />
-          <Route path="/submit" element={<ErrorBoundary><SubmitView user={user} /></ErrorBoundary>} />
-          <Route path="/moderate" element={user ? <ErrorBoundary><ModerationView /></ErrorBoundary> : <Navigate to="/" replace />} />
-          <Route path="/account" element={user ? <ErrorBoundary><AccountView user={user} /></ErrorBoundary> : <Navigate to="/" replace />} />
-          <Route path="/reset-password" element={<ErrorBoundary><ResetPasswordView /></ErrorBoundary>} />
-          <Route path="/login" element={<ErrorBoundary><LoginForm /></ErrorBoundary>} />
-        </Routes>
+        {/* 🚀 ROUTING LOGIC WITH SUSPENSE */}
+        <Suspense fallback={<RouteLoader />}>
+          <Routes>
+            <Route path="/" element={<ErrorBoundary><SearchView user={user} /></ErrorBoundary>} />
+            <Route path="/submit" element={<ErrorBoundary><SubmitView user={user} /></ErrorBoundary>} />
+            <Route path="/moderate" element={user ? <ErrorBoundary><ModerationView /></ErrorBoundary> : <Navigate to="/" replace />} />
+            <Route path="/account" element={user ? <ErrorBoundary><AccountView user={user} /></ErrorBoundary> : <Navigate to="/" replace />} />
+            <Route path="/reset-password" element={<ErrorBoundary><ResetPasswordView /></ErrorBoundary>} />
+            <Route path="/login" element={<ErrorBoundary><LoginForm /></ErrorBoundary>} />
+          </Routes>
+        </Suspense>
 
       </div>
     </div>
