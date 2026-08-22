@@ -13,13 +13,49 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 
-CREATE SCHEMA IF NOT EXISTS "public";
-
-
-ALTER SCHEMA "public" OWNER TO "pg_database_owner";
-
-
 COMMENT ON SCHEMA "public" IS 'standard public schema';
+
+
+
+CREATE EXTENSION IF NOT EXISTS "pg_stat_statements" WITH SCHEMA "extensions";
+
+
+
+
+
+
+CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA "public";
+
+
+
+
+
+
+CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
+
+
+
+
+
+
+CREATE EXTENSION IF NOT EXISTS "supabase_vault" WITH SCHEMA "vault";
+
+
+
+
+
+
+CREATE EXTENSION IF NOT EXISTS "unaccent" WITH SCHEMA "public";
+
+
+
+
+
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA "extensions";
+
+
+
 
 
 
@@ -219,6 +255,64 @@ $_$;
 ALTER FUNCTION "public"."approve_pending_submission"("submission_id" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_edition_full"("p_edition_id" "uuid") RETURNS TABLE("edition_id" "uuid", "title_fa" "text", "publisher" "text", "publication_status" "text", "publication_year_solar" integer, "publication_year_gregorian" integer, "original_year" integer, "page_count" integer, "isbn" "text", "synopsis" "text", "cast_men" integer, "cast_women" integer, "cast_nonspecific" integer, "cast_total" integer, "is_in_collection" boolean, "collection_title" "text", "translator_fa" "text"[], "is_verified" boolean, "flag_count" integer, "work_id" "uuid", "work_playwright_fa" "text"[], "work_original_title" "text", "work_source_language" "text", "work_alternative_titles" "text"[], "work_edition_count" bigint, "edition_tags" json, "external_references" json)
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$BEGIN
+  RETURN QUERY
+  SELECT
+    e.id AS edition_id,
+    e.title_fa,
+    e.publisher,
+    e.publication_status,
+    e.publication_year_solar,
+    e.publication_year_gregorian,
+    e.original_year,
+    e.page_count,
+    e.isbn,
+    e.synopsis,
+    e.cast_men,
+    e.cast_women,
+    e.cast_nonspecific,
+    e.cast_total,
+    e.is_in_collection,
+    e.collection_title,
+    e.translator_fa,
+    e.is_verified,
+    e.flag_count,
+    w.id AS work_id,
+    w.playwright_fa AS work_playwright_fa,
+    w.original_title AS work_original_title,
+    w.source_language AS work_source_language,
+    w.alternative_titles AS work_alternative_titles,
+    (SELECT COUNT(*) FROM farsi_editions fe2 WHERE fe2.work_id = w.id) AS work_edition_count,
+    (
+      SELECT json_agg(json_build_object(
+        'taxonomy_id', et.taxonomy_id,
+        'taxonomy', json_build_object('id', t.id, 'label_fa', t.label_fa)
+      ))
+      FROM edition_tags et
+      INNER JOIN taxonomy t ON t.id = et.taxonomy_id
+      WHERE et.farsi_edition_id = e.id
+    ) AS edition_tags,
+    (
+      SELECT json_agg(json_build_object(
+        'id', er.id,
+        'url', er.url,
+        'ref_type', er.ref_type
+      ))
+      FROM external_references er
+      WHERE er.farsi_edition_id = e.id
+    ) AS external_references
+  FROM farsi_editions e
+  INNER JOIN works w ON w.id = e.work_id
+  WHERE e.id = p_edition_id;
+END;$$;
+
+
+ALTER FUNCTION "public"."get_edition_full"("p_edition_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."get_user_role"() RETURNS "public"."user_role_enum"
     LANGUAGE "sql" STABLE SECURITY DEFINER
     AS $$
@@ -269,19 +363,16 @@ ALTER FUNCTION "public"."immutable_array_to_string"("arr" "text"[], "sep" "text"
 CREATE OR REPLACE FUNCTION "public"."normalize_farsi_text"("input_text" "text") RETURNS "text"
     LANGUAGE "sql" IMMUTABLE
     AS $$
-  SELECT 
+  SELECT
     translate(
       translate(
         translate(
           COALESCE(input_text, ''),
-          'يئ',
-          'ی'
+          'ي', 'ی'  -- فقط ي عربی به ی فارسی تبدیل می‌شود
         ),
-        'ك',
-        'ک'
+        'ك', 'ک'
       ),
-      'ة',
-      'ه'
+      'ة', 'ه'
     );
 $$;
 
@@ -390,7 +481,76 @@ $$;
 ALTER FUNCTION "public"."search_archive"("search_query" "text") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."search_editions"("search_term" "text" DEFAULT ''::"text", "search_scope" "text" DEFAULT 'all'::"text", "playwrights" "text"[] DEFAULT '{}'::"text"[], "translators" "text"[] DEFAULT '{}'::"text"[], "source_type" "text" DEFAULT 'all'::"text", "year_min" integer DEFAULT NULL::integer, "year_max" integer DEFAULT NULL::integer, "status" "text" DEFAULT 'all'::"text", "tags" "uuid"[] DEFAULT '{}'::"uuid"[], "cast_min" integer DEFAULT NULL::integer, "cast_max" integer DEFAULT NULL::integer, "verified_only" boolean DEFAULT false, "has_synopsis" boolean DEFAULT false, "in_collection" boolean DEFAULT false, "has_links" boolean DEFAULT false, "page_number" integer DEFAULT 1, "page_size" integer DEFAULT 20) RETURNS TABLE("edition_id" "uuid", "title_fa" "text", "publisher" "text", "publication_status" "text", "publication_year_solar" integer, "publication_year_gregorian" integer, "original_year" integer, "page_count" integer, "isbn" "text", "synopsis" "text", "cast_men" integer, "cast_women" integer, "cast_nonspecific" integer, "cast_total" integer, "is_in_collection" boolean, "collection_title" "text", "translator_fa" "text"[], "is_verified" boolean, "flag_count" integer, "work_id" "uuid", "work_playwright_fa" "text"[], "work_original_title" "text", "work_source_language" "text", "edition_tags" json, "external_references" json, "total_count" bigint)
+CREATE OR REPLACE FUNCTION "public"."search_duplicates"("title_query" "text") RETURNS TABLE("id" "uuid", "title_fa" "text", "publisher" "text", "publication_status" "text", "publication_year_solar" integer, "publication_year_gregorian" integer, "original_year" integer, "page_count" integer, "isbn" "text", "synopsis" "text", "cast_men" integer, "cast_women" integer, "cast_nonspecific" integer, "cast_total" integer, "is_in_collection" boolean, "collection_title" "text", "translator_fa" "text"[], "work_id" "uuid", "work_playwright_fa" "text"[], "work_original_title" "text", "work_source_language" "text", "work_alternative_titles" "text"[], "edition_tags" json, "external_references" json, "created_at" timestamp with time zone)
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    fe.id,
+    fe.title_fa,
+    fe.publisher,
+    fe.publication_status,
+    fe.publication_year_solar,
+    fe.publication_year_gregorian,
+    fe.original_year,
+    fe.page_count,
+    fe.isbn,
+    fe.synopsis,
+    fe.cast_men,
+    fe.cast_women,
+    fe.cast_nonspecific,
+    fe.cast_total,
+    fe.is_in_collection,
+    fe.collection_title,
+    fe.translator_fa,
+    w.id AS work_id,
+    w.playwright_fa AS work_playwright_fa,
+    w.original_title AS work_original_title,
+    w.source_language AS work_source_language,
+    w.alternative_titles AS work_alternative_titles,
+    (
+      SELECT json_agg(json_build_object(
+        'taxonomy_id', et.taxonomy_id,
+        'taxonomy', json_build_object('id', t.id, 'label_fa', t.label_fa)
+      ))
+      FROM edition_tags et
+      INNER JOIN taxonomy t ON t.id = et.taxonomy_id
+      WHERE et.farsi_edition_id = fe.id
+    ) AS edition_tags,
+    (
+      SELECT json_agg(json_build_object(
+        'id', er.id,
+        'url', er.url,
+        'ref_type', er.ref_type
+      ))
+      FROM external_references er
+      WHERE er.farsi_edition_id = fe.id
+    ) AS external_references,
+    fe.created_at AS created_at
+  FROM farsi_editions fe
+  INNER JOIN works w ON w.id = fe.work_id
+  WHERE
+    -- Search in title_fa (normalized)
+    normalize_farsi_text(fe.title_fa) ILIKE '%' || normalize_farsi_text(title_query) || '%'
+    -- Search in original_title (case-insensitive, not normalized)
+    OR w.original_title ILIKE '%' || title_query || '%'
+    -- Search in alternative_titles array (normalized)
+    OR EXISTS (
+      SELECT 1 FROM unnest(w.alternative_titles) AS alt
+      WHERE normalize_farsi_text(alt) ILIKE '%' || normalize_farsi_text(title_query) || '%'
+    )
+  ORDER BY fe.created_at DESC
+  LIMIT 3;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."search_duplicates"("title_query" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."search_editions"("search_term" "text" DEFAULT ''::"text", "search_scope" "text" DEFAULT 'all'::"text", "playwrights" "text"[] DEFAULT '{}'::"text"[], "translators" "text"[] DEFAULT '{}'::"text"[], "source_type" "text" DEFAULT 'all'::"text", "year_min" integer DEFAULT NULL::integer, "year_max" integer DEFAULT NULL::integer, "status" "text" DEFAULT 'all'::"text", "tags" "uuid"[] DEFAULT '{}'::"uuid"[], "cast_min" integer DEFAULT NULL::integer, "cast_max" integer DEFAULT NULL::integer, "verified_only" boolean DEFAULT false, "has_synopsis" boolean DEFAULT false, "in_collection" boolean DEFAULT false, "has_links" boolean DEFAULT false, "page_number" integer DEFAULT 1, "page_size" integer DEFAULT 20) RETURNS TABLE("edition_id" "uuid", "title_fa" "text", "publisher" "text", "publication_status" "text", "publication_year_solar" integer, "publication_year_gregorian" integer, "original_year" integer, "page_count" integer, "isbn" "text", "synopsis" "text", "cast_men" integer, "cast_women" integer, "cast_nonspecific" integer, "cast_total" integer, "is_in_collection" boolean, "collection_title" "text", "translator_fa" "text"[], "is_verified" boolean, "flag_count" integer, "work_id" "uuid", "work_playwright_fa" "text"[], "work_original_title" "text", "work_source_language" "text", "work_alternative_titles" "text"[], "work_edition_count" bigint, "edition_tags" json, "external_references" json, "total_count" bigint)
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
@@ -407,36 +567,25 @@ BEGIN
     SELECT DISTINCT e.*
     FROM farsi_editions e
     INNER JOIN works w ON w.id = e.work_id
-    
-    -- Filter: Verified only
+
     WHERE (NOT verified_only OR e.is_verified = true)
-    
-    -- Filter: Has synopsis
     AND (NOT has_synopsis OR (e.synopsis IS NOT NULL AND e.synopsis != ''))
-    
-    -- Filter: In collection
     AND (NOT in_collection OR e.is_in_collection = true)
-    
-    -- Filter: Publication status
     AND (status = 'all' OR e.publication_status = status)
-    
-    -- Filter: Year range
     AND (year_min IS NULL OR e.publication_year_solar >= year_min)
     AND (year_max IS NULL OR e.publication_year_solar <= year_max)
-    
-    -- Filter: Cast range
     AND (cast_min IS NULL OR e.cast_total >= cast_min)
     AND (cast_max IS NULL OR e.cast_total <= cast_max)
-    
-    -- Filter: Source type
-    AND (source_type = 'all' OR 
+    AND (source_type = 'all' OR
          (source_type = 'fa' AND w.source_language = 'fa') OR
          (source_type = 'translated' AND w.source_language != 'fa'))
-    
-    -- Filter: Text search (scope-specific with proper array handling)
+
     AND (
       search_term = '' OR
-      (search_scope = 'title' AND e.title_fa ILIKE search_pattern) OR
+      (search_scope = 'title' AND (
+        e.title_fa ILIKE search_pattern OR 
+        EXISTS (SELECT 1 FROM unnest(w.alternative_titles) AS alt WHERE alt ILIKE search_pattern)
+      )) OR
       (search_scope = 'publisher' AND e.publisher ILIKE search_pattern) OR
       (search_scope = 'synopsis' AND e.synopsis ILIKE search_pattern) OR
       (search_scope = 'author' AND EXISTS (
@@ -447,6 +596,7 @@ BEGIN
       )) OR
       (search_scope = 'all' AND (
         e.title_fa ILIKE search_pattern OR
+        EXISTS (SELECT 1 FROM unnest(w.alternative_titles) AS alt WHERE alt ILIKE search_pattern) OR
         e.publisher ILIKE search_pattern OR
         e.synopsis ILIKE search_pattern OR
         e.collection_title ILIKE search_pattern OR
@@ -454,14 +604,9 @@ BEGIN
         EXISTS (SELECT 1 FROM unnest(e.translator_fa) AS tr WHERE tr ILIKE search_pattern)
       ))
     )
-    
-    -- Filter: Playwrights (array overlap for exact filter values)
+
     AND (array_length(playwrights, 1) IS NULL OR w.playwright_fa && playwrights)
-    
-    -- Filter: Translators (array overlap for exact filter values)
     AND (array_length(translators, 1) IS NULL OR e.translator_fa && translators)
-    
-    -- Filter: Tags (AND logic - edition must have ALL selected tags)
     AND (
       array_length(tags, 1) IS NULL OR
       (
@@ -471,30 +616,29 @@ BEGIN
         AND et.taxonomy_id = ANY(tags)
       ) = array_length(tags, 1)
     )
-    
-    -- Filter: Has links
     AND (NOT has_links OR EXISTS (
-      SELECT 1 FROM external_references er 
+      SELECT 1 FROM external_references er
       WHERE er.farsi_edition_id = e.id
     ))
   ),
-  
-  -- Get total count
+
   count_query AS (
     SELECT COUNT(*) as cnt FROM filtered_editions
   ),
-  
-  -- Paginate
+
   paginated AS (
-    SELECT fe.*, w.id as w_id, w.playwright_fa as w_playwright_fa, 
-           w.original_title as w_original_title, w.source_language as w_source_language
+    SELECT fe.*, w.id as w_id, w.playwright_fa as w_playwright_fa,
+           w.original_title as w_original_title, w.source_language as w_source_language,
+           w.alternative_titles as w_alternative_titles,
+           -- 🆕 Count all editions for this work
+           (SELECT COUNT(*) FROM farsi_editions fe2 WHERE fe2.work_id = w.id) as w_edition_count
     FROM filtered_editions fe
     INNER JOIN works w ON w.id = fe.work_id
     ORDER BY fe.created_at DESC
     LIMIT page_size OFFSET offset_val
   )
-  
-  SELECT 
+
+  SELECT
     p.id as edition_id,
     p.title_fa,
     p.publisher,
@@ -518,6 +662,8 @@ BEGIN
     p.w_playwright_fa,
     p.w_original_title,
     p.w_source_language,
+    p.w_alternative_titles,
+    p.w_edition_count,  -- 🆕 NEW FIELD
     (
       SELECT json_agg(json_build_object(
         'taxonomy_id', et.taxonomy_id,
@@ -543,6 +689,45 @@ $$;
 
 
 ALTER FUNCTION "public"."search_editions"("search_term" "text", "search_scope" "text", "playwrights" "text"[], "translators" "text"[], "source_type" "text", "year_min" integer, "year_max" integer, "status" "text", "tags" "uuid"[], "cast_min" integer, "cast_max" integer, "verified_only" boolean, "has_synopsis" boolean, "in_collection" boolean, "has_links" boolean, "page_number" integer, "page_size" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."search_editions_for_linking"("search_term" "text") RETURNS TABLE("edition_id" "uuid", "title_fa" "text", "translator_fa" "text"[], "publisher" "text", "publication_year_solar" integer, "work_id" "uuid", "work_original_title" "text", "work_playwright_fa" "text"[], "work_source_language" "text", "work_alternative_titles" "text"[])
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  RETURN QUERY
+  SELECT DISTINCT
+    fe.id AS edition_id,
+    fe.title_fa,
+    fe.translator_fa,
+    fe.publisher,
+    fe.publication_year_solar,
+    w.id AS work_id,
+    w.original_title AS work_original_title,
+    w.playwright_fa AS work_playwright_fa,
+    w.source_language AS work_source_language,
+    w.alternative_titles AS work_alternative_titles
+  FROM farsi_editions fe
+  INNER JOIN works w ON w.id = fe.work_id
+  WHERE
+    fe.title_fa ILIKE '%' || search_term || '%'
+    OR w.original_title ILIKE '%' || search_term || '%'
+    OR EXISTS (
+      SELECT 1 FROM unnest(w.alternative_titles) AS alt
+      WHERE alt ILIKE '%' || search_term || '%'
+    )
+    OR EXISTS (
+      SELECT 1 FROM unnest(w.playwright_fa) AS pw
+      WHERE pw ILIKE '%' || search_term || '%'
+    )
+  ORDER BY fe.title_fa
+  LIMIT 8;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."search_editions_for_linking"("search_term" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."search_playwrights"("search_term" "text" DEFAULT ''::"text", "limit_val" integer DEFAULT 50) RETURNS TABLE("name" "text")
@@ -851,7 +1036,8 @@ CREATE TABLE IF NOT EXISTS "public"."works" (
     "source_language" "text" DEFAULT 'fa'::"text",
     "playwright_fa" "text"[] DEFAULT '{}'::"text"[],
     "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"()
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "alternative_titles" "text"[] DEFAULT '{}'::"text"[]
 );
 
 
@@ -1180,10 +1366,176 @@ ALTER TABLE "public"."user_roles" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."works" ENABLE ROW LEVEL SECURITY;
 
 
+
+
+ALTER PUBLICATION "supabase_realtime" OWNER TO "postgres";
+
+
 GRANT USAGE ON SCHEMA "public" TO "postgres";
 GRANT USAGE ON SCHEMA "public" TO "anon";
 GRANT USAGE ON SCHEMA "public" TO "authenticated";
 GRANT USAGE ON SCHEMA "public" TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gtrgm_in"("cstring") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gtrgm_in"("cstring") TO "anon";
+GRANT ALL ON FUNCTION "public"."gtrgm_in"("cstring") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gtrgm_in"("cstring") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gtrgm_out"("public"."gtrgm") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gtrgm_out"("public"."gtrgm") TO "anon";
+GRANT ALL ON FUNCTION "public"."gtrgm_out"("public"."gtrgm") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gtrgm_out"("public"."gtrgm") TO "service_role";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1193,9 +1545,106 @@ GRANT ALL ON FUNCTION "public"."approve_pending_submission"("submission_id" "uui
 
 
 
+GRANT ALL ON FUNCTION "public"."get_edition_full"("p_edition_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_edition_full"("p_edition_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_edition_full"("p_edition_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_user_role"() TO "anon";
 GRANT ALL ON FUNCTION "public"."get_user_role"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_user_role"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gin_extract_query_trgm"("text", "internal", smallint, "internal", "internal", "internal", "internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gin_extract_query_trgm"("text", "internal", smallint, "internal", "internal", "internal", "internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gin_extract_query_trgm"("text", "internal", smallint, "internal", "internal", "internal", "internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gin_extract_query_trgm"("text", "internal", smallint, "internal", "internal", "internal", "internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gin_extract_value_trgm"("text", "internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gin_extract_value_trgm"("text", "internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gin_extract_value_trgm"("text", "internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gin_extract_value_trgm"("text", "internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gin_trgm_consistent"("internal", smallint, "text", integer, "internal", "internal", "internal", "internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gin_trgm_consistent"("internal", smallint, "text", integer, "internal", "internal", "internal", "internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gin_trgm_consistent"("internal", smallint, "text", integer, "internal", "internal", "internal", "internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gin_trgm_consistent"("internal", smallint, "text", integer, "internal", "internal", "internal", "internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gin_trgm_triconsistent"("internal", smallint, "text", integer, "internal", "internal", "internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gin_trgm_triconsistent"("internal", smallint, "text", integer, "internal", "internal", "internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gin_trgm_triconsistent"("internal", smallint, "text", integer, "internal", "internal", "internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gin_trgm_triconsistent"("internal", smallint, "text", integer, "internal", "internal", "internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gtrgm_compress"("internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gtrgm_compress"("internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gtrgm_compress"("internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gtrgm_compress"("internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gtrgm_consistent"("internal", "text", smallint, "oid", "internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gtrgm_consistent"("internal", "text", smallint, "oid", "internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gtrgm_consistent"("internal", "text", smallint, "oid", "internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gtrgm_consistent"("internal", "text", smallint, "oid", "internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gtrgm_decompress"("internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gtrgm_decompress"("internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gtrgm_decompress"("internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gtrgm_decompress"("internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gtrgm_distance"("internal", "text", smallint, "oid", "internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gtrgm_distance"("internal", "text", smallint, "oid", "internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gtrgm_distance"("internal", "text", smallint, "oid", "internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gtrgm_distance"("internal", "text", smallint, "oid", "internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gtrgm_options"("internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gtrgm_options"("internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gtrgm_options"("internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gtrgm_options"("internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gtrgm_penalty"("internal", "internal", "internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gtrgm_penalty"("internal", "internal", "internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gtrgm_penalty"("internal", "internal", "internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gtrgm_penalty"("internal", "internal", "internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gtrgm_picksplit"("internal", "internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gtrgm_picksplit"("internal", "internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gtrgm_picksplit"("internal", "internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gtrgm_picksplit"("internal", "internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gtrgm_same"("public"."gtrgm", "public"."gtrgm", "internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gtrgm_same"("public"."gtrgm", "public"."gtrgm", "internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gtrgm_same"("public"."gtrgm", "public"."gtrgm", "internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gtrgm_same"("public"."gtrgm", "public"."gtrgm", "internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."gtrgm_union"("internal", "internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."gtrgm_union"("internal", "internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."gtrgm_union"("internal", "internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."gtrgm_union"("internal", "internal") TO "service_role";
 
 
 
@@ -1235,9 +1684,21 @@ GRANT ALL ON FUNCTION "public"."search_archive"("search_query" "text") TO "servi
 
 
 
+GRANT ALL ON FUNCTION "public"."search_duplicates"("title_query" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."search_duplicates"("title_query" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."search_duplicates"("title_query" "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."search_editions"("search_term" "text", "search_scope" "text", "playwrights" "text"[], "translators" "text"[], "source_type" "text", "year_min" integer, "year_max" integer, "status" "text", "tags" "uuid"[], "cast_min" integer, "cast_max" integer, "verified_only" boolean, "has_synopsis" boolean, "in_collection" boolean, "has_links" boolean, "page_number" integer, "page_size" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."search_editions"("search_term" "text", "search_scope" "text", "playwrights" "text"[], "translators" "text"[], "source_type" "text", "year_min" integer, "year_max" integer, "status" "text", "tags" "uuid"[], "cast_min" integer, "cast_max" integer, "verified_only" boolean, "has_synopsis" boolean, "in_collection" boolean, "has_links" boolean, "page_number" integer, "page_size" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."search_editions"("search_term" "text", "search_scope" "text", "playwrights" "text"[], "translators" "text"[], "source_type" "text", "year_min" integer, "year_max" integer, "status" "text", "tags" "uuid"[], "cast_min" integer, "cast_max" integer, "verified_only" boolean, "has_synopsis" boolean, "in_collection" boolean, "has_links" boolean, "page_number" integer, "page_size" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."search_editions_for_linking"("search_term" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."search_editions_for_linking"("search_term" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."search_editions_for_linking"("search_term" "text") TO "service_role";
 
 
 
@@ -1259,6 +1720,83 @@ GRANT ALL ON FUNCTION "public"."search_translators"("search_term" "text", "limit
 
 
 
+GRANT ALL ON FUNCTION "public"."set_limit"(real) TO "postgres";
+GRANT ALL ON FUNCTION "public"."set_limit"(real) TO "anon";
+GRANT ALL ON FUNCTION "public"."set_limit"(real) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."set_limit"(real) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."show_limit"() TO "postgres";
+GRANT ALL ON FUNCTION "public"."show_limit"() TO "anon";
+GRANT ALL ON FUNCTION "public"."show_limit"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."show_limit"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."show_trgm"("text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."show_trgm"("text") TO "anon";
+GRANT ALL ON FUNCTION "public"."show_trgm"("text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."show_trgm"("text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."similarity"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."similarity"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."similarity"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."similarity"("text", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."similarity_dist"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."similarity_dist"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."similarity_dist"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."similarity_dist"("text", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."similarity_op"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."similarity_op"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."similarity_op"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."similarity_op"("text", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."strict_word_similarity"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity"("text", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_commutator_op"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_commutator_op"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_commutator_op"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_commutator_op"("text", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_commutator_op"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_commutator_op"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_commutator_op"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_commutator_op"("text", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_op"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_op"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_op"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_op"("text", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_op"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_op"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_op"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."strict_word_similarity_op"("text", "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."trg_normalize_farsi_editions"() TO "anon";
 GRANT ALL ON FUNCTION "public"."trg_normalize_farsi_editions"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."trg_normalize_farsi_editions"() TO "service_role";
@@ -1277,6 +1815,34 @@ GRANT ALL ON FUNCTION "public"."trg_normalize_works"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."unaccent"("text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."unaccent"("text") TO "anon";
+GRANT ALL ON FUNCTION "public"."unaccent"("text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."unaccent"("text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."unaccent"("regdictionary", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."unaccent"("regdictionary", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."unaccent"("regdictionary", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."unaccent"("regdictionary", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."unaccent_init"("internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."unaccent_init"("internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."unaccent_init"("internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."unaccent_init"("internal") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."unaccent_lexize"("internal", "internal", "internal", "internal") TO "postgres";
+GRANT ALL ON FUNCTION "public"."unaccent_lexize"("internal", "internal", "internal", "internal") TO "anon";
+GRANT ALL ON FUNCTION "public"."unaccent_lexize"("internal", "internal", "internal", "internal") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."unaccent_lexize"("internal", "internal", "internal", "internal") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."update_updated_at"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_updated_at"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_updated_at"() TO "service_role";
@@ -1286,6 +1852,56 @@ GRANT ALL ON FUNCTION "public"."update_updated_at"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."validate_translator_requirement"() TO "anon";
 GRANT ALL ON FUNCTION "public"."validate_translator_requirement"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."validate_translator_requirement"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."word_similarity"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."word_similarity"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."word_similarity"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."word_similarity"("text", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."word_similarity_commutator_op"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."word_similarity_commutator_op"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."word_similarity_commutator_op"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."word_similarity_commutator_op"("text", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."word_similarity_dist_commutator_op"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."word_similarity_dist_commutator_op"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."word_similarity_dist_commutator_op"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."word_similarity_dist_commutator_op"("text", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."word_similarity_dist_op"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."word_similarity_dist_op"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."word_similarity_dist_op"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."word_similarity_dist_op"("text", "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."word_similarity_op"("text", "text") TO "postgres";
+GRANT ALL ON FUNCTION "public"."word_similarity_op"("text", "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."word_similarity_op"("text", "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."word_similarity_op"("text", "text") TO "service_role";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1349,6 +1965,12 @@ GRANT ALL ON TABLE "public"."works" TO "service_role";
 
 
 
+
+
+
+
+
+
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "postgres";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "authenticated";
@@ -1373,6 +1995,30 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "service_role";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

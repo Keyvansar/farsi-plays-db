@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { sanitizeUrl } from '../utils/textUtils';
 import { toast } from 'sonner';
@@ -19,43 +20,125 @@ const TYPE_STYLES = {
   flag: { badge: 'bg-red-100 text-red-800', border: 'border-red-200', label: 'گزارش خطا', icon: '🚩' },
 };
 
+// 🆕 Query key for cache management
+const PENDING_QUERY_KEY = ['pending_submissions'];
+
+// 🆕 Fetch function (extracted for useQuery)
+async function fetchPendingSubmissions() {
+  const { data, error } = await supabase
+    .from('pending_submissions')
+    .select('*')
+    .eq('status', 'pending')
+    .order('submitted_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
 export default function ModerationView() {
-  const [submissions, setSubmissions] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  // 🆕 Data fetching with React Query
+  const { data: submissions = [], isLoading: loading } = useQuery({
+    queryKey: PENDING_QUERY_KEY,
+    queryFn: fetchPendingSubmissions,
+  });
+
+  // 🆕 Approve mutation
+  const approveMutation = useMutation({
+    mutationFn: async (ids) => {
+      const results = [];
+      for (const id of ids) {
+        const { data, error } = await supabase.rpc('approve_pending_submission', { submission_id: id });
+        results.push({ id, success: !error && data?.success });
+      }
+      return results;
+    },
+    onMutate: async (ids) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: PENDING_QUERY_KEY });
+
+      // Snapshot previous value
+      const previousSubmissions = queryClient.getQueryData(PENDING_QUERY_KEY);
+
+      // 🚀 Optimistic update: remove items immediately
+      queryClient.setQueryData(PENDING_QUERY_KEY, (old) =>
+        (old || []).filter((s) => !ids.includes(s.id))
+      );
+
+      return { previousSubmissions };
+    },
+    onSuccess: (results) => {
+      const successCount = results.filter((r) => r.success).length;
+      const errorCount = results.length - successCount;
+
+      if (errorCount === 0) {
+        toast.success(`${successCount} مورد با موفقیت تایید شد.`);
+      } else {
+        toast.warning(`${successCount} تایید شد، ${errorCount} خطا داشت.`);
+      }
+      setSelectedIds(new Set());
+    },
+    onError: (err, ids, context) => {
+      // Rollback on error
+      queryClient.setQueryData(PENDING_QUERY_KEY, context.previousSubmissions);
+      console.error('Approve error:', err);
+      toast.error('خطا در پردازش درخواست‌ها. لطفاً دوباره تلاش کنید.');
+    },
+    onSettled: () => {
+      // Always refetch to ensure sync with server
+      queryClient.invalidateQueries({ queryKey: PENDING_QUERY_KEY });
+      setProcessingIds(new Set());
+    },
+  });
+
+  // 🆕 Reject mutation
+  const rejectMutation = useMutation({
+    mutationFn: async ({ ids, reason }) => {
+      const results = [];
+      for (const id of ids) {
+        const { data, error } = await supabase.rpc('reject_pending_submission', { submission_id: id, reason });
+        results.push({ id, success: !error && data?.success });
+      }
+      return results;
+    },
+    onMutate: async ({ ids }) => {
+      await queryClient.cancelQueries({ queryKey: PENDING_QUERY_KEY });
+      const previousSubmissions = queryClient.getQueryData(PENDING_QUERY_KEY);
+      queryClient.setQueryData(PENDING_QUERY_KEY, (old) =>
+        (old || []).filter((s) => !ids.includes(s.id))
+      );
+      return { previousSubmissions };
+    },
+    onSuccess: (results) => {
+      const successCount = results.filter((r) => r.success).length;
+      toast.success(`${successCount} مورد رد شد.`);
+      setSelectedIds(new Set());
+    },
+    onError: (err, variables, context) => {
+      queryClient.setQueryData(PENDING_QUERY_KEY, context.previousSubmissions);
+      console.error('Reject error:', err);
+      toast.error('خطا در رد کردن درخواست‌ها.');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: PENDING_QUERY_KEY });
+      setProcessingIds(new Set());
+    },
+  });
+
+  // UI state (unchanged)
   const [activeTab, setActiveTab] = useState('all');
   const [processingIds, setProcessingIds] = useState(new Set());
   const [expandedId, setExpandedId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
 
-  const fetchPending = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('pending_submissions')
-        .select('*')
-        .eq('status', 'pending')
-        .order('submitted_at', { ascending: false });
-
-      if (error) throw error;
-      setSubmissions(data || []);
-      setSelectedIds(new Set());
-    } catch (err) {
-      console.error('Fetch error:', err);
-      toast.error('خطا در بارگذاری کارتابل. لطفاً دوباره تلاش کنید.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchPending(); }, []);
-
   const filtered = activeTab === 'all'
     ? submissions
-    : submissions.filter(s => s.action_type === activeTab);
+    : submissions.filter((s) => s.action_type === activeTab);
 
   // ===== SELECTION =====
   const toggleSelect = (id) => {
-    setSelectedIds(prev => {
+    setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -65,59 +148,23 @@ export default function ModerationView() {
 
   const toggleSelectAll = () => {
     if (selectedIds.size === filtered.length) setSelectedIds(new Set());
-    else setSelectedIds(new Set(filtered.map(s => s.id)));
+    else setSelectedIds(new Set(filtered.map((s) => s.id)));
   };
 
-  // ===== BULK ACTIONS =====
-  const bulkApprove = async (ids) => {
+  // ===== BULK ACTIONS (using mutations) =====
+  const bulkApprove = (ids) => {
     if (ids.length === 0) return;
     setProcessingIds(new Set(ids));
-    let successCount = 0;
-    let errorCount = 0;
-
-    try {
-      for (const id of ids) {
-        const { data, error } = await supabase.rpc('approve_pending_submission', { submission_id: id });
-        if (error || (data && !data.success)) {
-          errorCount++;
-        } else {
-          successCount++;
-        }
-      }
-
-      setSubmissions(subs => subs.filter(s => !ids.includes(s.id)));
-      setSelectedIds(new Set());
-
-      if (errorCount === 0) {
-        toast.success(`${successCount} مورد با موفقیت تایید شد.`);
-      } else {
-        toast.warning(`${successCount} تایید شد، ${errorCount} خطا داشت.`);
-      }
-    } catch (err) {
-      console.error('Bulk approve error:', err);
-      toast.error('خطا در پردازش درخواست‌ها. لطفاً دوباره تلاش کنید.');
-    } finally {
-      setProcessingIds(new Set());
-    }
+    approveMutation.mutate(ids);
   };
 
-  const bulkReject = async (ids) => {
+  const bulkReject = (ids) => {
     if (ids.length === 0) return;
     const reason = prompt('دلیل رد کردن (اختیاری):');
     if (reason === null) return;
 
     setProcessingIds(new Set(ids));
-    let successCount = 0;
-
-    for (const id of ids) {
-      const { data, error } = await supabase.rpc('reject_pending_submission', { submission_id: id, reason });
-      if (!error && data?.success) successCount++;
-    }
-
-    setSubmissions(subs => subs.filter(s => !ids.includes(s.id)));
-    setSelectedIds(new Set());
-    setProcessingIds(new Set());
-    toast.success(`${successCount} مورد رد شد.`);
+    rejectMutation.mutate({ ids, reason });
   };
 
   // ===== COMPREHENSIVE PAYLOAD RENDERER =====
@@ -137,7 +184,6 @@ export default function ModerationView() {
       );
     };
 
-    // DELETE SUGGESTION
     if (sub.action_type === 'delete_suggestion') {
       const reasonLabels = { duplicate: 'تکراری', spam: 'اسپم', fake: 'جعلی', other: 'دلایل دیگر' };
       return (
@@ -145,14 +191,13 @@ export default function ModerationView() {
           <p className="text-sm font-bold text-orange-800 mb-2">🗑️ پیشنهاد حذف</p>
           <Field label="اثر" value={p.title_fa} />
           {p.delete_reasons?.length > 0 && (
-            <Field label="دلایل" value={p.delete_reasons.map(r => reasonLabels[r] || r)} />
+            <Field label="دلایل" value={p.delete_reasons.map((r) => reasonLabels[r] || r)} />
           )}
           {p.other_reason && <Field label="توضیحات" value={p.other_reason} />}
         </div>
       );
     }
 
-    // FLAG
     if (sub.action_type === 'flag') {
       return (
         <div className="mt-3 p-4 bg-red-50 rounded-lg border border-red-100">
@@ -165,7 +210,6 @@ export default function ModerationView() {
       );
     }
 
-    // EDIT / SUGGESTION
     if (sub.action_type === 'direct_edit' || sub.action_type === 'edit_suggestion') {
       return (
         <div className="mt-3">
@@ -187,10 +231,8 @@ export default function ModerationView() {
       );
     }
 
-    // NEW SUBMISSION — SHOW ALL FIELDS
     return (
       <div className="mt-3 space-y-3">
-        {/* Basic Info */}
         <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
           <p className="text-xs font-bold text-indigo-600 mb-2">📌 اطلاعات اصلی</p>
           <Field label="عنوان" value={p.title_fa} />
@@ -200,7 +242,6 @@ export default function ModerationView() {
           {p.original_title && <Field label="عنوان اصلی" value={p.original_title} dir="ltr" />}
         </div>
 
-        {/* Publication */}
         <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
           <p className="text-xs font-bold text-indigo-600 mb-2">📖 نشر</p>
           <Field label="وضعیت انتشار" value={p.publication_status} />
@@ -213,7 +254,6 @@ export default function ModerationView() {
           {p.is_in_collection && <Field label="مجموعه" value={p.collection_title || 'بله'} />}
         </div>
 
-        {/* Cast */}
         {(p.cast_men || p.cast_women || p.cast_nonspecific || p.cast_total) && (
           <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
             <p className="text-xs font-bold text-indigo-600 mb-2">🎭 بازیگران</p>
@@ -226,7 +266,6 @@ export default function ModerationView() {
           </div>
         )}
 
-        {/* Synopsis */}
         {p.synopsis && (
           <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
             <p className="text-xs font-bold text-indigo-600 mb-2">📝 خلاصه</p>
@@ -234,7 +273,6 @@ export default function ModerationView() {
           </div>
         )}
 
-        {/* Tags */}
         {p.tags?.length > 0 && (
           <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
             <p className="text-xs font-bold text-indigo-600 mb-2">🏷️ برچسب‌ها</p>
@@ -246,7 +284,6 @@ export default function ModerationView() {
           </div>
         )}
 
-        {/* External References */}
         {p.external_references?.length > 0 && (
           <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
             <p className="text-xs font-bold text-indigo-600 mb-2">🔗 لینک‌های خارجی</p>
@@ -261,7 +298,6 @@ export default function ModerationView() {
           </div>
         )}
 
-        {/* Submitter */}
         {(p.submitter_name || p.submitter_email) && (
           <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
             <p className="text-xs font-bold text-blue-600 mb-2">👤 ثبت‌کننده</p>
@@ -279,12 +315,11 @@ export default function ModerationView() {
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6" dir="rtl">
       <h2 className="text-2xl font-bold text-gray-900 mb-6">📋 کارتابل بررسی</h2>
 
-      {/* Tabs */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-        {TABS.map(tab => {
+        {TABS.map((tab) => {
           const count = tab.key === 'all'
             ? submissions.length
-            : submissions.filter(s => s.action_type === tab.key).length;
+            : submissions.filter((s) => s.action_type === tab.key).length;
           return (
             <button
               key={tab.key}
@@ -301,7 +336,6 @@ export default function ModerationView() {
         })}
       </div>
 
-      {/* Bulk Action Bar */}
       {filtered.length > 0 && (
         <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200 flex-wrap">
           <label className="flex items-center gap-2 cursor-pointer text-sm">
@@ -343,14 +377,14 @@ export default function ModerationView() {
               </>
             )}
             <button
-              onClick={() => bulkApprove(filtered.map(s => s.id))}
+              onClick={() => bulkApprove(filtered.map((s) => s.id))}
               disabled={processingIds.size > 0}
               className="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200 disabled:opacity-50"
             >
               ✅ تایید همه ({filtered.length})
             </button>
             <button
-              onClick={() => bulkReject(filtered.map(s => s.id))}
+              onClick={() => bulkReject(filtered.map((s) => s.id))}
               disabled={processingIds.size > 0}
               className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-medium hover:bg-red-200 disabled:opacity-50"
             >
@@ -360,16 +394,14 @@ export default function ModerationView() {
         </div>
       )}
 
-      {/* Empty State */}
       {filtered.length === 0 && !loading && (
         <div className="text-center py-12 text-gray-500 border-2 border-dashed border-gray-200 rounded-xl">
           🎉 موردی برای بررسی وجود ندارد.
         </div>
       )}
 
-      {/* Submission Cards */}
       <div className="space-y-4">
-        {filtered.map(sub => {
+        {filtered.map((sub) => {
           const style = TYPE_STYLES[sub.action_type] || TYPE_STYLES.new_submission;
           const isExpanded = expandedId === sub.id;
           const isSelected = selectedIds.has(sub.id);
@@ -377,7 +409,6 @@ export default function ModerationView() {
 
           return (
             <div key={sub.id} className={`border rounded-xl overflow-hidden transition-all ${style.border} ${isSelected ? 'ring-2 ring-indigo-300' : ''}`}>
-              {/* Header */}
               <div className="p-4 bg-gray-50 flex items-center gap-3">
                 <input
                   type="checkbox"
@@ -405,14 +436,12 @@ export default function ModerationView() {
                 </div>
               </div>
 
-              {/* Expanded Body */}
               {isExpanded && (
                 <div className="p-4 border-t border-gray-100">
                   {renderPayload(sub)}
                 </div>
               )}
 
-              {/* Actions */}
               <div className="p-4 border-t border-gray-100 flex gap-3">
                 <button
                   onClick={() => bulkApprove([sub.id])}
