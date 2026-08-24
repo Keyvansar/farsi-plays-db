@@ -1,0 +1,1 @@
+SELECT unnest(enum_range(NULL::public.flag_type_enum)) AS flag_type;

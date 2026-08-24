@@ -24,10 +24,15 @@ const SUGGESTABLE_FIELDS = [
 // NOTE: These values must match your flag_type_enum in the database
 const FLAG_TYPES = [
   { key: 'wrong_info', label: 'اطلاعات نادرست' },
+  { key: 'wrong_title', label: 'عنوان نادرست' },
+  { key: 'wrong_translator', label: 'مترجم نادرست' },
+  { key: 'wrong_writer', label: 'نویسنده نادرست' },
   { key: 'duplicate', label: 'اثر تکراری' },
   { key: 'spam', label: 'اسپم' },
   { key: 'copyright', label: 'نقض حق نشر' },
   { key: 'other', label: 'سایر' },
+  { key: 'inappropriate_content', label: 'محتوای نامناسب' },
+  { key: 'wrong_year', label: 'سال نادرست' },
 ];
 
 export default function EditSuggestModal({ edition, user, mode = 'suggest', onClose, onSubmitted }) {
@@ -130,10 +135,9 @@ export default function EditSuggestModal({ edition, user, mode = 'suggest', onCl
       <div className="p-6 space-y-4">
         {/* Messages */}
         {message.text && (
-          <div className={`p-3 rounded-lg text-sm border ${
-            message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
+          <div className={`p-3 rounded-lg text-sm border ${message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
             'bg-red-50 text-red-800 border-red-200'
-          }`}>
+            }`}>
             {message.text}
           </div>
         )}
@@ -246,9 +250,8 @@ export default function EditSuggestModal({ edition, user, mode = 'suggest', onCl
             type="button"
             onClick={handleSubmit}
             disabled={!canSubmit || submitting}
-            className={`flex-1 py-3 rounded-xl font-bold text-white disabled:opacity-50 transition-colors ${
-              isFlag ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'
-            }`}
+            className={`flex-1 py-3 rounded-xl font-bold text-white disabled:opacity-50 transition-colors ${isFlag ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'
+              }`}
           >
             {submitting ? '⏳ در حال ثبت...' : (isFlag ? '🚩 ثبت گزارش' : '💡 ثبت پیشنهاد')}
           </button>

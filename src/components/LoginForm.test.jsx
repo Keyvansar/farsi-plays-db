@@ -113,4 +113,4 @@ describe('LoginForm', () => {
             expect(toast.error).toHaveBeenCalledWith('Network error');
         });
     });
-});
+}); 
