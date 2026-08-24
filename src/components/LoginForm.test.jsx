@@ -12,6 +12,14 @@ vi.mock('../lib/supabase', () => ({
     },
 }));
 
+// Mock Sonner so we can assert toast calls without mounting a <Toaster />
+vi.mock('sonner', () => ({
+    toast: {
+        error: vi.fn(),
+        success: vi.fn(),
+    },
+}));
+
 // Mock React Router
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -23,6 +31,7 @@ vi.mock('react-router-dom', async () => {
 });
 
 import { supabase } from '../lib/supabase';
+import { toast } from 'sonner';
 
 describe('LoginForm', () => {
     beforeEach(() => {
@@ -71,7 +80,7 @@ describe('LoginForm', () => {
         });
     });
 
-    it('displays translated error message for invalid credentials', async () => {
+    it('shows translated toast for invalid credentials', async () => {
         supabase.auth.signInWithPassword.mockResolvedValue({
             data: null,
             error: { message: 'Invalid login credentials' }
@@ -84,11 +93,11 @@ describe('LoginForm', () => {
         await userEvent.click(screen.getByRole('button', { name: 'ورود' }));
 
         await waitFor(() => {
-            expect(screen.getByText('ایمیل یا رمز عبور اشتباه است.')).toBeInTheDocument();
+            expect(toast.error).toHaveBeenCalledWith('ایمیل یا رمز عبور اشتباه است.');
         });
     });
 
-    it('displays generic error message for other auth failures', async () => {
+    it('shows raw error toast for other auth failures', async () => {
         supabase.auth.signInWithPassword.mockResolvedValue({
             data: null,
             error: { message: 'Network error' }
@@ -101,7 +110,7 @@ describe('LoginForm', () => {
         await userEvent.click(screen.getByRole('button', { name: 'ورود' }));
 
         await waitFor(() => {
-            expect(screen.getByText('Network error')).toBeInTheDocument();
+            expect(toast.error).toHaveBeenCalledWith('Network error');
         });
     });
 });
