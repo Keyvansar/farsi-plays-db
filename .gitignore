@@ -29,3 +29,6 @@ dist
 .env
 .env.local
 .DS_Store
+supabase/snippets/Untitled query 634.sql
+backups/pre_audit_fixes.sql
+backups/pre_phase123_deploy.sql
