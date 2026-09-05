@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+// ===== ZOD SCHEMA =====
 export const editionSchema = z.object({
   title_fa: z.string().min(3, 'عنوان باید حداقل ۳ حرف باشد'),
   playwright_fa: z.string().min(3, 'نام نویسنده الزامی است'),
@@ -10,7 +11,7 @@ export const editionSchema = z.object({
   is_in_collection: z.boolean().default(false),
   collection_title: z.string().optional().default(''),
   original_title: z.string().optional().default(''),
-  alternative_titles: z.string().optional().default(''), // 🆕 نام‌های دیگر
+  alternative_titles: z.string().optional().default(''), // نام‌های دیگر
   publication_year_solar: z.string().optional().default(''),
   publication_year_gregorian: z.string().optional().default(''),
   original_year: z.string().optional().default(''),
@@ -38,3 +39,11 @@ export const editionSchema = z.object({
   },
   { message: 'نام مترجم برای آثار ترجمه شده الزامی است', path: ['translator_fa'] }
 );
+
+// ===== INFERRED TYPES =====
+
+/** The fully parsed, validated form data (all optional fields filled with defaults). */
+export type EditionFormData = z.infer<typeof editionSchema>;
+
+/** The raw input before validation (optional fields can be undefined). */
+export type EditionFormInput = z.input<typeof editionSchema>;
