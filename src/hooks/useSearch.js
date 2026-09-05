@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 
 const ITEMS_PER_PAGE = 20;
@@ -20,7 +21,80 @@ const defaultFilters = {
   hasLinks: false,
 };
 
+// 🆕 Small debounce helper for fast-changing inputs
+function useDebouncedValue(value, delay = 300) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+// 🆕 Pure fetch + transform function
+async function fetchSearchResults(params) {
+  const { data, error } = await supabase.rpc('search_editions', {
+    search_term: params.searchTerm.trim(),
+    search_scope: params.searchScope,
+    playwrights: params.filters.playwrights,
+    translators: params.filters.translators,
+    source_type: params.filters.sourceType,
+    year_min: params.filters.yearMin ? parseInt(params.filters.yearMin) : null,
+    year_max: params.filters.yearMax ? parseInt(params.filters.yearMax) : null,
+    status: params.filters.status,
+    tags: params.filters.tags,
+    cast_min: params.filters.castMin ? parseInt(params.filters.castMin) : null,
+    cast_max: params.filters.castMax ? parseInt(params.filters.castMax) : null,
+    verified_only: params.filters.verifiedOnly,
+    has_synopsis: params.filters.hasSynopsis,
+    in_collection: params.filters.inCollection,
+    has_links: params.filters.hasLinks,
+    page_number: params.page,
+    page_size: ITEMS_PER_PAGE,
+  });
+
+  if (error) throw error;
+
+  const results = (data || []).map(row => ({
+    id: row.edition_id,
+    title_fa: row.title_fa,
+    publisher: row.publisher,
+    publication_status: row.publication_status,
+    publication_year_solar: row.publication_year_solar,
+    publication_year_gregorian: row.publication_year_gregorian,
+    original_year: row.original_year,
+    page_count: row.page_count,
+    isbn: row.isbn,
+    synopsis: row.synopsis,
+    cast_men: row.cast_men,
+    cast_women: row.cast_women,
+    cast_nonspecific: row.cast_nonspecific,
+    cast_total: row.cast_total,
+    is_in_collection: row.is_in_collection,
+    collection_title: row.collection_title,
+    translator_fa: row.translator_fa,
+    is_verified: row.is_verified,
+    flag_count: row.flag_count,
+    work_edition_count: row.work_edition_count,
+    works: {
+      id: row.work_id,
+      playwright_fa: row.work_playwright_fa,
+      original_title: row.work_original_title,
+      source_language: row.work_source_language,
+      alternative_titles: row.work_alternative_titles,
+    },
+    edition_tags: row.edition_tags || [],
+    external_references: row.external_references || [],
+  }));
+
+  return {
+    results,
+    totalCount: data?.[0]?.total_count || 0,
+  };
+}
+
 export function useSearch() {
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Search state
@@ -30,10 +104,7 @@ export function useSearch() {
   // Filter state
   const [filters, setFilters] = useState(defaultFilters);
 
-  // Data state
-  const [results, setResults] = useState([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [loading, setLoading] = useState(false);
+  // Pagination
   const [page, setPage] = useState(1);
 
   // Track initialization
@@ -72,7 +143,7 @@ export function useSearch() {
     isInitialized.current = true;
   }, [searchParams]);
 
-  // ===== SYNC STATE TO URL =====
+  // ===== SYNC STATE TO URL (unchanged) =====
   useEffect(() => {
     if (!initialized) return;
 
@@ -103,89 +174,42 @@ export function useSearch() {
     return () => clearTimeout(timer);
   }, [searchTerm, searchScope, filters, page, initialized, setSearchParams]);
 
-  // ===== FETCH RESULTS VIA RPC =====
-  const fetchResults = useCallback(async () => {
-    setLoading(true);
+  // 🆕 Debounce fast-changing inputs so we don't query per keystroke
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
+  const debouncedFilters = useDebouncedValue(filters, 300);
 
-    try {
-      const { data, error } = await supabase.rpc('search_editions', {
-        search_term: searchTerm.trim(),
-        search_scope: searchScope,
-        playwrights: filters.playwrights,
-        translators: filters.translators,
-        source_type: filters.sourceType,
-        year_min: filters.yearMin ? parseInt(filters.yearMin) : null,
-        year_max: filters.yearMax ? parseInt(filters.yearMax) : null,
-        status: filters.status,
-        tags: filters.tags,
-        cast_min: filters.castMin ? parseInt(filters.castMin) : null,
-        cast_max: filters.castMax ? parseInt(filters.castMax) : null,
-        verified_only: filters.verifiedOnly,
-        has_synopsis: filters.hasSynopsis,
-        in_collection: filters.inCollection,
-        has_links: filters.hasLinks,
-        page_number: page,
-        page_size: ITEMS_PER_PAGE,
-      });
+  // ===== 🆕 THE QUERY =====
+  const {
+    data,
+    isFetching,
+  } = useQuery({
+    queryKey: ['search_editions', debouncedSearchTerm, searchScope, debouncedFilters, page],
+    queryFn: () =>
+      fetchSearchResults({
+        searchTerm: debouncedSearchTerm,
+        searchScope,
+        filters: debouncedFilters,
+        page,
+      }),
+    enabled: initialized,
+    placeholderData: keepPreviousData, // keep old results visible while new page loads
+    staleTime: 30 * 1000,
+  });
 
-      if (error) throw error;
+  const results = data?.results || [];
+  const totalCount = data?.totalCount || 0;
+  const loading = isFetching;
 
-      // Transform RPC results to match the expected format
-      const transformedResults = (data || []).map(row => ({
-        id: row.edition_id,
-        title_fa: row.title_fa,
-        publisher: row.publisher,
-        publication_status: row.publication_status,
-        publication_year_solar: row.publication_year_solar,
-        publication_year_gregorian: row.publication_year_gregorian,
-        original_year: row.original_year,
-        page_count: row.page_count,
-        isbn: row.isbn,
-        synopsis: row.synopsis,
-        cast_men: row.cast_men,
-        cast_women: row.cast_women,
-        cast_nonspecific: row.cast_nonspecific,
-        cast_total: row.cast_total,
-        is_in_collection: row.is_in_collection,
-        collection_title: row.collection_title,
-        translator_fa: row.translator_fa,
-        is_verified: row.is_verified,
-        flag_count: row.flag_count,
-        work_edition_count: row.work_edition_count,  // 🆕 NEW FIELD
-        works: {
-          id: row.work_id,
-          playwright_fa: row.work_playwright_fa,
-          original_title: row.work_original_title,
-          source_language: row.work_source_language,
-          alternative_titles: row.work_alternative_titles,  // 🆕 NEW FIELD
-        },
-        edition_tags: row.edition_tags || [],
-        external_references: row.external_references || [],
-      }));
-
-      setResults(transformedResults);
-      setTotalCount(data?.[0]?.total_count || 0);
-
-    } catch (err) {
-      console.error('Search error:', err);
-      setResults([]);
-      setTotalCount(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [searchTerm, searchScope, filters, page]);
-
-  useEffect(() => {
-    if (!initialized) return;
-    const timer = setTimeout(fetchResults, 300);
-    return () => clearTimeout(timer);
-  }, [fetchResults, initialized]);
-
-  // Reset page on filter change
+  // Reset page on filter / search change (unchanged behavior)
   useEffect(() => {
     if (!initialized) return;
     setPage(1);
   }, [searchTerm, searchScope, filters, initialized]);
+
+  // 🆕 fetchResults now invalidates the cache (used by edit/link/submit flows)
+  const fetchResults = () => {
+    queryClient.invalidateQueries({ queryKey: ['search_editions'] });
+  };
 
   // Count active filters
   const activeCount = Object.entries(filters).filter(([key, val]) => {

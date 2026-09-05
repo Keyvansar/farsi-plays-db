@@ -16,12 +16,43 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // 🚀 Split vendor libraries into separate chunks for better caching
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-forms': ['react-hook-form', '@hookform/resolvers', 'zod'],
-          'vendor-query': ['@tanstack/react-query'],
-          'vendor-ui': ['sonner'],
+        // 🚀 Rolldown requires manualChunks as a function, not an object
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+
+          // React ecosystem
+          if (
+            id.includes('/react/') ||
+            id.includes('/react-dom/') ||
+            id.includes('/react-router') ||
+            id.includes('/scheduler/')
+          ) {
+            return 'vendor-react';
+          }
+
+          // Form libraries
+          if (
+            id.includes('/react-hook-form/') ||
+            id.includes('/@hookform/') ||
+            id.includes('/zod/')
+          ) {
+            return 'vendor-forms';
+          }
+
+          // React Query
+          if (id.includes('/@tanstack/')) {
+            return 'vendor-query';
+          }
+
+          // UI utilities
+          if (id.includes('/sonner/')) {
+            return 'vendor-ui';
+          }
+
+          // Supabase
+          if (id.includes('/@supabase/')) {
+            return 'vendor-supabase';
+          }
         },
       },
     },
@@ -30,7 +61,5 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.js',
-    // نکته: پلاگین Tailwind v4 گاهی در محیط jsdom با خطای CSS مواجه می‌شود.
-    // اگر در هنگام اجرای تست‌ها خطای مربوط به CSS دیدید، کافیست `css: false` را به این بخش اضافه کنید.
   },
 });

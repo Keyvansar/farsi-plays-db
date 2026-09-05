@@ -1,24 +1,79 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { normalizeFarsi } from '../utils/textUtils';
 
-/**
- * Custom hook for detecting duplicate editions by title
- * and managing the merge/complete/new-edition mode selection.
- */
+// 🆕 Extracted fetch function (pure, takes input, returns data)
+async function fetchDuplicateMatches(titleQuery) {
+    const normalizedTitle = normalizeFarsi(titleQuery);
+
+    const { data, error } = await supabase
+        .from('farsi_editions')
+        .select(`
+      id,
+      title_fa,
+      publisher,
+      publication_status,
+      publication_year_solar,
+      publication_year_gregorian,
+      original_year,
+      page_count,
+      isbn,
+      synopsis,
+      cast_men,
+      cast_women,
+      cast_nonspecific,
+      cast_total,
+      is_in_collection,
+      collection_title,
+      translator_fa,
+      works!inner(id, playwright_fa, original_title, source_language, alternative_titles),
+      edition_tags(taxonomy_id, taxonomy(id, label_fa)),
+      external_references(id, url, ref_type)
+    `)
+        .ilike('title_fa', `%${normalizedTitle}%`)
+        .limit(3);
+
+    if (error) throw error;
+    return data || [];
+}
+
 export function useDuplicateDetection(watchedTitle) {
-    const [duplicateMatches, setDuplicateMatches] = useState([]);
+    // 🆕 Compute whether the query should run (replaces the length < 3 check)
+    const normalizedTitle = useMemo(
+        () => normalizeFarsi(watchedTitle || ''),
+        [watchedTitle]
+    );
+    const shouldSearch = normalizedTitle.length >= 3;
+
+    // 🆕 React Query handles:
+    //   - automatic cancellation when watchedTitle changes (replaces manual debounce clearTimeout)
+    //   - caching results per title (typing "مکبث" twice is instant the second time)
+    //   - `isFetching` flag for the spinner
+    const {
+        data: duplicateMatches = [],
+        isFetching: isCheckingDuplicate,
+    } = useQuery({
+        queryKey: ['duplicate_detection', normalizedTitle],
+        queryFn: () => fetchDuplicateMatches(watchedTitle),
+        enabled: shouldSearch,
+        staleTime: 5 * 60 * 1000,   // 5 min — duplicates rarely change
+        placeholderData: [],         // keep previous results visible while refetching
+    });
+
+    // ===== UI STATE (kept local — user interaction, not server data) =====
     const [selectedMergeTarget, setSelectedMergeTarget] = useState(null);
     const [isCompletingDuplicate, setIsCompletingDuplicate] = useState(false);
-    const [isNewEdition, setIsNewEdition] = useState(false); // 🆕
-    const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+    const [isNewEdition, setIsNewEdition] = useState(false);
     const [lockedFields, setLockedFields] = useState({});
 
-    // ===== DUPLICATE DETECTION =====
+    // ===== Re-validate selection when matches change =====
+    // Preserves the original behavior: if the previously selected match is no
+    // longer in the results, drop it. This also clears everything when the
+    // query is disabled (title too short) and returns empty.
     useEffect(() => {
-        // 🛛 FIX: Only check length, no more normalizeFarsi here (done in RPC)
-        if (!watchedTitle || watchedTitle.length < 3) {
-            setDuplicateMatches([]);
+        if (!shouldSearch) {
+            // Title too short — wipe everything
             setSelectedMergeTarget(null);
             setIsCompletingDuplicate(false);
             setIsNewEdition(false);
@@ -26,63 +81,20 @@ export function useDuplicateDetection(watchedTitle) {
             return;
         }
 
-        const checkDuplicate = async () => {
-            setIsCheckingDuplicate(true);
-            try {
-                // 🆕 Use RPC that searches title_fa + original_title + alternative_titles
-                const { data, error } = await supabase.rpc('search_duplicates', {
-                    title_query: watchedTitle || '',
-                });
-
-                if (error) throw error;
-
-                // Map RPC result to the format expected by DuplicateWarning
-                const matches = (data || []).map(row => ({
-                    id: row.id,
-                    title_fa: row.title_fa,
-                    publisher: row.publisher,
-                    publication_status: row.publication_status,
-                    publication_year_solar: row.publication_year_solar,
-                    publication_year_gregorian: row.publication_year_gregorian,
-                    original_year: row.original_year,
-                    page_count: row.page_count,
-                    isbn: row.isbn,
-                    synopsis: row.synopsis,
-                    cast_men: row.cast_men,
-                    cast_women: row.cast_women,
-                    cast_nonspecific: row.cast_nonspecific,
-                    cast_total: row.cast_total,
-                    is_in_collection: row.is_in_collection,
-                    collection_title: row.collection_title,
-                    translator_fa: row.translator_fa,
-                    works: {
-                        id: row.work_id,
-                        playwright_fa: row.work_playwright_fa,
-                        original_title: row.work_original_title,
-                        source_language: row.work_source_language,
-                        alternative_titles: row.work_alternative_titles,
-                    },
-                    edition_tags: row.edition_tags || [],
-                    external_references: row.external_references || [],
-                }));
-
-                setDuplicateMatches(matches);
-                setSelectedMergeTarget(prev =>
-                    prev && matches.find(d => d.id === prev.id) ? prev : null
-                );
-            } catch (err) {
-                console.error('Error checking for duplicates:', err);
-            } finally {
-                setIsCheckingDuplicate(false);
+        // If the current selection is gone from results, deselect
+        if (selectedMergeTarget) {
+            const stillPresent = duplicateMatches.some(m => m.id === selectedMergeTarget.id);
+            if (!stillPresent) {
+                setSelectedMergeTarget(null);
+                setIsCompletingDuplicate(false);
+                setIsNewEdition(false);
+                setLockedFields({});
             }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [duplicateMatches, shouldSearch]);
 
-        };
-
-        const delayDebounceFn = setTimeout(checkDuplicate, 800);
-        return () => clearTimeout(delayDebounceFn);
-    }, [watchedTitle]);
-
-    // ===== MODE CHANGE HANDLER (called from DuplicateWarning) =====
+    // ===== MODE CHANGE HANDLER =====
     const handleModeChange = (mode) => {
         if (mode === 'complete') {
             setIsCompletingDuplicate(true);
@@ -97,7 +109,7 @@ export function useDuplicateDetection(watchedTitle) {
         }
     };
 
-    // ===== SELECT/DSELECT A MATCH =====
+    // ===== SELECT / DESELECT A MATCH =====
     const handleSelectMatch = (match) => {
         setSelectedMergeTarget(match);
         if (!match) {
@@ -109,7 +121,6 @@ export function useDuplicateDetection(watchedTitle) {
 
     // ===== RESET ALL STATE =====
     const resetDuplicateState = () => {
-        setDuplicateMatches([]);
         setSelectedMergeTarget(null);
         setIsCompletingDuplicate(false);
         setIsNewEdition(false);

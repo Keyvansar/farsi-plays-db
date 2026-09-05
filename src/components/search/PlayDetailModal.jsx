@@ -1,65 +1,57 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import Modal from '../ui/Modal';
 import { joinNamesFromArray } from '../../utils/textUtils';
 import { toast } from 'sonner';
 import { getEditionFull } from '../submit/submitActions';
 
+// 🆕 Fetch other editions of the same work (extracted for useQuery)
+async function fetchOtherEditions(workId, editionId) {
+  const { data, error } = await supabase
+    .from('farsi_editions')
+    .select(`
+      id,
+      title_fa,
+      translator_fa,
+      publisher,
+      publication_year_solar,
+      publication_status,
+      is_verified,
+      page_count
+    `)
+    .eq('work_id', workId)
+    .neq('id', editionId)
+    .order('publication_year_solar', { ascending: false, nullsFirst: false })
+    .limit(10);
+
+  if (error) throw error;
+  return data || [];
+}
+
 export default function PlayDetailModal({ edition, onClose, onEdit, onSuggest, onFlag, onDelete, onSwitchEdition }) {
-  // 🆕 Other editions of the same work
-  const [otherEditions, setOtherEditions] = useState([]);
-  const [loadingEditions, setLoadingEditions] = useState(false);
+  // 🆕 Which edition card is currently being switched to
   const [switchingId, setSwitchingId] = useState(null);
 
-  // 🛛 FIX: useEffect MUST be before any conditional return (React hooks rule)
+  // 🛛 Compute ids BEFORE any hooks that depend on them
   const workId = edition?.work_id || edition?.works?.id;
+  const editionId = edition?.id;
 
-  useEffect(() => {
-    if (!workId || !edition?.id) {
-      setOtherEditions([]);
-      return;
-    }
+  // 🆕 Other editions via React Query (cached per work + current edition)
+  const { data: otherEditions = [], isLoading: loadingEditions } = useQuery({
+    queryKey: ['other_editions', workId, editionId],
+    queryFn: () => fetchOtherEditions(workId, editionId),
+    enabled: !!workId && !!editionId,
+  });
 
-    const fetchOtherEditions = async () => {
-      setLoadingEditions(true);
-      try {
-        const { data, error } = await supabase
-          .from('farsi_editions')
-          .select(`
-            id,
-            title_fa,
-            translator_fa,
-            publisher,
-            publication_year_solar,
-            publication_status,
-            is_verified,
-            page_count
-          `)
-          .eq('work_id', workId)
-          .neq('id', edition.id)
-          .order('publication_year_solar', { ascending: false, nullsFirst: false })
-          .limit(10);
-
-        if (!error) setOtherEditions(data || []);
-      } catch (err) {
-        console.error('Error fetching other editions:', err);
-        setOtherEditions([]);
-      } finally {
-        setLoadingEditions(false);
-      }
-    };
-
-    fetchOtherEditions();
-  }, [workId, edition?.id]);
-
-  // 🛛 Conditional return AFTER all hooks
+  // 🛛 Conditional return AFTER all hooks (React hooks rule)
   if (!edition) return null;
 
   const work = edition.works;
   const tags = edition.edition_tags?.map(et => et.taxonomy?.label_fa).filter(Boolean) || [];
   const refs = edition.external_references || [];
 
-  // 🆕 Fetch FULL edition data before switching
+  // Fetch FULL edition data before switching
   const handleSwitchEdition = async (targetEdition) => {
     setSwitchingId(targetEdition.id);
     try {
@@ -166,7 +158,7 @@ export default function PlayDetailModal({ edition, onClose, onEdit, onSuggest, o
           </section>
         )}
 
-        {/* 🆕 Other Editions Section */}
+        {/* Other Editions Section */}
         {(otherEditions.length > 0 || loadingEditions) && (
           <section>
             <h3 className="text-sm font-bold text-indigo-600 mb-3">
