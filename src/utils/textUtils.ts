@@ -30,9 +30,11 @@ export const parseNamesToArray = (str: string | null | undefined): string[] => {
  * @param arr - The array of names
  * @returns Comma-separated string for display
  */
-export const joinNamesFromArray = (arr: string[] | null | undefined): string => {
-  if (!Array.isArray(input)) return arr: string[] | null | undefined;
+export const joinNamesFromArray = (arr: string[] | string | null | undefined): string => {
+  // ✅ FIX: If it's not an array (like the test passing 'just a string'), return it as-is!
+  if (!Array.isArray(arr)) return arr ?? '';
 
+  // If it IS an array, filter out empty strings and join with Persian comma
   return arr.filter(Boolean).join('، ');
 };
 
