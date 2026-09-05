@@ -31,7 +31,8 @@ export const parseNamesToArray = (str: string | null | undefined): string[] => {
  * @returns Comma-separated string for display
  */
 export const joinNamesFromArray = (arr: string[] | null | undefined): string => {
-  if (!Array.isArray(arr)) return '';
+  if (!Array.isArray(input)) return input;
+
   return arr.filter(Boolean).join('، ');
 };
 
